@@ -1,17 +1,62 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Home, Search, Settings, MapPin, ChevronLeft, Send, LogOut, Megaphone, Pencil, Trash2, UtensilsCrossed, Bell } from 'lucide-react';
+import { Home, Search, Settings, MapPin, ChevronLeft, Send, LogOut, Megaphone, Pencil, Trash2, UtensilsCrossed, Bell, BellOff, Wheat, Sandwich, Cake } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../auth/AuthProvider';
-import { Av, FotoBtn, HorariosView, Logo, NavBtn, Pic, PushBanner, Selo, Shell, Spinner, StatusBadge, Stars, Vazio, btn, btn2, inp, useToast } from '../ui';
-import { distKm, fresco, kmFmt, media, money, tempo } from '../lib/util';
+import { Av, FotoBtn, HorariosView, Logo, NavBtn, Pic, Selo, Shell, Spinner, StatusBadge, Stars, Vazio, btn, btn2, inp, useToast } from '../ui';
+import { distKm, fresco, kmFmt, media, tempo } from '../lib/util';
 import { ativarPush, desativarPush, pushStatus } from '../lib/push';
+
+const CATS = {
+  pao: { nome: 'Pães', un: 'pão', ic: Wheat, emoji: '🥖' },
+  salgado: { nome: 'Salgados', un: 'salgado', ic: Sandwich, emoji: '🥟' },
+  doce: { nome: 'Doces', un: 'doce', ic: Cake, emoji: '🍰' },
+};
 
 const Nota = ({ lista }) => (
   <span className="flex items-center gap-1 text-xs text-stone-500">
     <Stars v={media(lista)} />{lista.length ? `${media(lista).toFixed(1).replace('.', ',')} (${lista.length})` : 'sem notas'}
   </span>
 );
+
+// Faixa Pães / Salgados / Doces: toque no ícone para filtrar; "Avisar" liga o push daquela categoria
+function Especiais({ filtro, setFiltro }) {
+  const { user, perfil, refresh } = useAuth();
+  const say = useToast();
+  const setPref = async (k) => {
+    const v = !perfil[`av_${k}`];
+    if (v && pushStatus() !== 'ativo') {
+      try { await ativarPush(); } catch (e) {
+        return say(e.message === 'ios-instalar' ? 'No iPhone, adicione o app à Tela de Início para receber avisos.'
+          : e.message === 'bloqueado' ? 'Permissão negada. Libere as notificações nas configurações do navegador.'
+          : 'Não foi possível ativar os avisos neste aparelho.');
+      }
+    }
+    const { error } = await supabase.from('profiles').update({ [`av_${k}`]: v }).eq('id', user.id);
+    if (error) return say('Não foi possível salvar.');
+    refresh();
+    say(v ? `Você será avisado quando sair ${CATS[k].un} fresco 🔔` : `Aviso de ${CATS[k].un} desligado`);
+  };
+  return (
+    <div className="flex justify-around px-2 py-3 border-b border-stone-200">
+      {Object.entries(CATS).map(([k, c]) => {
+        const on = !!perfil?.[`av_${k}`];
+        return (
+          <div key={k} className="flex flex-col items-center gap-1">
+            <button onClick={() => setFiltro(filtro === k ? null : k)} aria-label={`Ver ${c.nome}`}
+              className={`w-14 h-14 rounded-full p-[2px] ${filtro === k ? 'bg-stone-900' : 'bg-gradient-to-tr from-red-500 to-orange-400'}`}>
+              <span className="flex w-full h-full rounded-full bg-white items-center justify-center text-red-600"><c.ic size={22} strokeWidth={1.75} /></span>
+            </button>
+            <span className="text-xs font-semibold">{c.nome}</span>
+            <button onClick={() => setPref(k)} className={`flex items-center gap-1 text-[11px] rounded-full px-2 py-0.5 border ${on ? 'bg-red-600 text-white border-red-600' : 'border-stone-300 text-stone-600'}`}>
+              {on ? <Bell size={11} /> : <BellOff size={11} />}{on ? 'Avisando' : 'Avisar'}
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 // Cards (somente imagem) do administrador + avisos liberados
 const Cards = ({ cards, avisos }) => {
@@ -33,20 +78,23 @@ const Cards = ({ cards, avisos }) => {
 };
 
 // item do feed: fornada ou post
-const FeedItem = ({ it, pani, open }) => (
-  <article className="border-b border-stone-200 pb-3">
-    <button onClick={() => open?.(pani.id)} className="flex items-center gap-2 px-3 py-2">
-      <Av src={pani.foto_url} emoji={pani.emoji} size={32} />
-      <span className="text-sm font-semibold">{pani.nome}</span>
-      <span className="text-xs text-stone-400">{tempo(it.created_at)}</span>
-    </button>
-    <div className="relative">
-      <Pic src={it.img_url} emoji={pani.emoji} cls="aspect-square" />
-      {it.tipo === 'fornada' && fresco(it.created_at) && <div className="absolute top-3 left-3"><Selo /></div>}
-    </div>
-    <div className="px-3 pt-2 text-sm">{it.tipo === 'fornada' ? <b>🥖 Fornada saindo agora!</b> : it.txt}</div>
-  </article>
-);
+const FeedItem = ({ it, pani, open }) => {
+  const c = CATS[it.cat] || CATS.pao;
+  return (
+    <article className="px-3 pb-4 mb-1 border-b border-stone-100">
+      <button onClick={() => open?.(pani.id)} className="flex items-center gap-2 py-2">
+        <Av src={pani.foto_url} emoji={pani.emoji} size={32} />
+        <span className="text-sm font-semibold">{pani.nome}</span>
+        <span className="text-xs text-stone-400">{tempo(it.created_at)}</span>
+      </button>
+      <div className="relative rounded-2xl overflow-hidden border border-stone-200 shadow-sm">
+        <Pic src={it.img_url} emoji={it.tipo === 'fornada' ? c.emoji : pani.emoji} cls="aspect-square" />
+        {it.tipo === 'fornada' && fresco(it.created_at, it.cat) && <div className="absolute top-3 left-3"><Selo txt={it.cat === 'doce' ? 'Fresco' : 'Fresquinho'} /></div>}
+      </div>
+      <div className="pt-2 text-sm">{it.tipo === 'fornada' ? <b>{c.emoji} Fornada de {c.un} saindo agora!</b> : it.txt}</div>
+    </article>
+  );
+};
 
 function Lista({ panis, follows, open, seguir, loc, pedirLoc }) {
   const [q, setQ] = useState('');
@@ -84,30 +132,39 @@ function Lista({ panis, follows, open, seguir, loc, pedirLoc }) {
   );
 }
 
+// seletor de estrelas
+const Estrelas = ({ nota, setNota }) => (
+  <>{[1, 2, 3, 4, 5].map((i) => (
+    <button key={i} onClick={() => setNota(i)} aria-label={`${i} estrelas`} className="p-0.5">
+      <svg width="24" height="24" viewBox="0 0 24 24" className={i <= nota ? 'fill-red-500 text-red-500' : 'text-stone-300'} fill="currentColor"><path d="M12 2l3 7 7.5.6-5.7 4.9 1.8 7.3L12 17.8 5.4 21.8l1.8-7.3L1.5 9.6 9 9z" /></svg>
+    </button>
+  ))}</>
+);
+
 function PaniPage({ p, follows, seguir, loc, recarregar }) {
   const { user, perfil } = useAuth();
   const say = useToast();
   const [tab, setTab] = useState('nov');
-  const [d, setD] = useState({ fornadas: [], posts: [], receitas: [], comentarios: [] });
+  const [filtro, setFiltro] = useState(null);
+  const [d, setD] = useState({ fornadas: [], posts: [], comentarios: [] });
   const [txt, setTxt] = useState('');
   const [nota, setNota] = useState(0);
   const [edit, setEdit] = useState(false);
 
   const load = useCallback(async () => {
-    const [a, b, c, e] = await Promise.all([
+    const [a, b, e] = await Promise.all([
       supabase.from('fornadas').select('*').eq('pani_id', p.id).order('created_at', { ascending: false }).limit(20),
       supabase.from('posts').select('*').eq('pani_id', p.id).order('created_at', { ascending: false }).limit(20),
-      supabase.from('receitas').select('*').eq('pani_id', p.id).order('created_at', { ascending: false }),
       supabase.from('comentarios').select('*').eq('pani_id', p.id).order('created_at', { ascending: false }),
     ]);
-    setD({ fornadas: a.data || [], posts: b.data || [], receitas: c.data || [], comentarios: e.data || [] });
+    setD({ fornadas: a.data || [], posts: b.data || [], comentarios: e.data || [] });
   }, [p.id]);
   useEffect(() => { load(); }, [load]);
 
   const novidades = [
     ...d.fornadas.map((x) => ({ ...x, tipo: 'fornada' })),
-    ...d.posts.map((x) => ({ ...x, tipo: 'post' })),
-  ].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    ...(filtro ? [] : d.posts.map((x) => ({ ...x, tipo: 'post' }))),
+  ].filter((x) => !filtro || x.cat === filtro).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
   const meu = d.comentarios.find((c) => c.user_id === user.id); // 1 comentário por cliente em cada pani
   const dist = distKm(loc, p);
 
@@ -136,21 +193,14 @@ function PaniPage({ p, follows, seguir, loc, recarregar }) {
         <button onClick={() => seguir(p.id)} className={`flex-1 ${follows.includes(p.id) ? btn2 : btn}`}>{follows.includes(p.id) ? 'Seguindo' : 'Seguir'}</button>
         <Link to={`/c/${p.slug}`} className={`flex-1 ${btn2} flex items-center justify-center gap-2`}><UtensilsCrossed size={16} />Cardápio</Link>
       </div>
+      <Especiais filtro={filtro} setFiltro={setFiltro} />
       <div className="flex border-b border-stone-200">
-        {[['nov', 'Novidades'], ['rec', 'Receitas'], ['com', 'Comentários'], ['hor', 'Horários']].map(([k, l]) => (
+        {[['nov', 'Novidades'], ['com', 'Comentários'], ['hor', 'Horários']].map(([k, l]) => (
           <button key={k} onClick={() => setTab(k)} className={`flex-1 py-2.5 text-xs font-semibold border-b-2 ${tab === k ? 'border-stone-900' : 'border-transparent text-stone-400'}`}>{l}</button>
         ))}
       </div>
 
-      {tab === 'nov' && (novidades.length ? novidades.map((it) => <FeedItem key={it.tipo + it.id} it={it} pani={p} />) : <Vazio t="Nada por aqui ainda. Siga a pani para saber quando sair a próxima fornada." />)}
-
-      {tab === 'rec' && (d.receitas.length ? d.receitas.map((r) => (
-        <div key={r.id} className="p-4 border-b border-stone-100 text-sm">
-          <div className="font-bold">{r.titulo}</div>
-          <div className="whitespace-pre-line text-stone-600 mt-1">{r.ingredientes}</div>
-          <div className="mt-2">{r.modo}</div>
-        </div>
-      )) : <Vazio t="Esta pani ainda não publicou receitas." />)}
+      {tab === 'nov' && (novidades.length ? novidades.map((it) => <FeedItem key={it.tipo + it.id} it={it} pani={p} />) : <Vazio t="Nada por aqui ainda. Ative o Avisar para saber quando sair a próxima fornada." />)}
 
       {tab === 'com' && (
         <div className="p-3">
@@ -187,21 +237,11 @@ function PaniPage({ p, follows, seguir, loc, recarregar }) {
   );
 }
 
-// seletor de estrelas
-const Estrelas = ({ nota, setNota }) => (
-  <>{[1, 2, 3, 4, 5].map((i) => (
-    <button key={i} onClick={() => setNota(i)} aria-label={`${i} estrelas`} className="p-0.5">
-      <svg width="24" height="24" viewBox="0 0 24 24" className={i <= nota ? 'fill-red-500 text-red-500' : 'text-stone-300'} fill="currentColor"><path d="M12 2l3 7 7.5.6-5.7 4.9 1.8 7.3L12 17.8 5.4 21.8l1.8-7.3L1.5 9.6 9 9z" /></svg>
-    </button>
-  ))}</>
-);
-
 function Ajustes({ pedirLoc }) {
   const { user, perfil, refresh, signOut } = useAuth();
   const say = useToast();
   const [nome, setNome] = useState(perfil.nome);
   const [conf, setConf] = useState(false);
-  const [pani, setPani] = useState('');
   const [ps, setPs] = useState(pushStatus());
 
   const salvarNome = async () => {
@@ -211,14 +251,10 @@ function Ajustes({ pedirLoc }) {
   };
   const foto = async (url) => { await supabase.from('profiles').update({ foto_url: url }).eq('id', user.id); refresh(); };
   const push = async () => {
-    try { if (ps === 'ativo') { await desativarPush(); localStorage.setItem('apppani:push-off', '1'); setPs('pendente'); say('Avisos desativados'); } else { await ativarPush(); setPs('ativo'); say('Avisos ativados 🔔'); } }
-    catch { setPs(pushStatus()); say('Não foi possível alterar os avisos neste aparelho.'); }
-  };
-  const virarPani = async () => {
-    if (!pani.trim()) return;
-    const { error } = await supabase.rpc('virar_pani', { p_nome: pani.trim() });
-    if (error) return say('Não foi possível cadastrar a panificadora.');
-    await refresh();
+    try {
+      if (ps === 'ativo') { await desativarPush(); setPs('pendente'); say('Avisos desativados neste aparelho'); }
+      else { await ativarPush(); setPs('ativo'); say('Avisos ativados 🔔'); }
+    } catch { setPs(pushStatus()); say('Não foi possível alterar os avisos neste aparelho.'); }
   };
   const excluir = async () => { await supabase.rpc('delete_my_account'); await signOut(); };
 
@@ -231,17 +267,11 @@ function Ajustes({ pedirLoc }) {
 
       <div className="border border-stone-200 rounded-xl p-3 text-sm flex items-center gap-3">
         <Bell size={18} className="text-red-600" />
-        <div className="flex-1"><b>Avisos de fornada</b><div className="text-xs text-stone-500">{ps === 'ativo' ? 'Ativos neste aparelho' : ps === 'bloqueado' ? 'Bloqueados no navegador' : ps === 'ios-instalar' ? 'No iPhone, adicione à Tela de Início' : ps === 'sem-suporte' ? 'Sem suporte neste aparelho' : 'Desativados'}</div></div>
+        <div className="flex-1"><b>Notificações neste aparelho</b><div className="text-xs text-stone-500">{ps === 'ativo' ? 'Ativas' : ps === 'bloqueado' ? 'Bloqueadas no navegador' : ps === 'ios-instalar' ? 'No iPhone, adicione à Tela de Início' : ps === 'sem-suporte' ? 'Sem suporte neste aparelho' : 'Desativadas'}</div></div>
         {(ps === 'ativo' || ps === 'pendente') && <button onClick={push} className={btn2}>{ps === 'ativo' ? 'Desativar' : 'Ativar'}</button>}
       </div>
 
       <button onClick={pedirLoc} className={`${btn2} flex items-center justify-center gap-2`}><MapPin size={16} />Usar minha localização</button>
-
-      <div className="border border-stone-200 rounded-xl p-3 flex flex-col gap-2">
-        <div className="text-sm font-semibold">Tenho uma panificadora</div>
-        <input className={inp} placeholder="Nome da panificadora" value={pani} onChange={(e) => setPani(e.target.value)} />
-        <button onClick={virarPani} className={btn2}>Cadastrar panificadora</button>
-      </div>
 
       <button onClick={signOut} className={`${btn2} flex items-center justify-center gap-2`}><LogOut size={16} />Sair</button>
       {!conf
@@ -262,6 +292,7 @@ export default function Cliente() {
   const say = useToast();
   const [tab, setTab] = useState('home');
   const [aberta, setAberta] = useState(null);
+  const [filtro, setFiltro] = useState(null);
   const [panis, setPanis] = useState(null);
   const [follows, setFollows] = useState([]);
   const [cards, setCards] = useState([]);
@@ -318,6 +349,7 @@ export default function Cliente() {
   const pani = panis.find((p) => p.id === aberta);
   const go = (t) => { setTab(t); setAberta(null); };
   const lista = <Lista panis={panis} follows={follows} open={setAberta} seguir={seguir} loc={loc} pedirLoc={pedirLoc} />;
+  const itens = feed.filter((it) => !filtro || (it.tipo === 'fornada' && it.cat === filtro));
 
   return (
     <Shell
@@ -333,15 +365,16 @@ export default function Cliente() {
         : tab === 'explorar' ? lista
         : tab === 'ajustes' ? <Ajustes pedirLoc={pedirLoc} />
         : <>
-            <PushBanner />
             <Cards cards={cards} avisos={avisos} />
+            <Especiais filtro={filtro} setFiltro={setFiltro} />
             {follows.length === 0
               ? <><p className="px-4 pt-4 text-sm text-stone-600">Escolha uma pani para ver as fornadas frescas dela aqui.</p>{lista}</>
-              : feed.length === 0 ? <Vazio t="Nada novo das panis que você segue. Toque em Explorar para seguir outras." />
-              : feed.map((it) => {
-                  const pn = panis.find((x) => x.id === it.pani_id);
-                  return pn ? <FeedItem key={it.tipo + it.id} it={it} pani={pn} open={setAberta} /> : null;
-                })}
+              : itens.length === 0
+                ? <Vazio t={filtro ? `Nenhuma fornada de ${CATS[filtro].un} das panis que você segue. Toque no ícone de novo para ver tudo.` : 'Nada novo das panis que você segue. Toque em Explorar para seguir outras.'} />
+                : itens.map((it) => {
+                    const pn = panis.find((x) => x.id === it.pani_id);
+                    return pn ? <FeedItem key={it.tipo + it.id} it={it} pani={pn} open={setAberta} /> : null;
+                  })}
           </>}
     </Shell>
   );

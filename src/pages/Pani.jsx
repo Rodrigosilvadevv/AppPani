@@ -6,9 +6,12 @@ import { Av, FotoBtn, Logo, NavBtn, Shell, Spinner, Vazio, btn, btn2, inp, useTo
 import { DIAS, getHorarios, idade, money, slugify, tempo } from '../lib/util';
 import Chat from './Chat';
 
-/* ---------- Painel: botão único "Avisar fornada" ---------- */
+/* ---------- Painel: botão "Avisar fornada" por categoria ---------- */
+const CATS = { pao: ['🥖', 'Pão'], salgado: ['🥟', 'Salgado'], doce: ['🍰', 'Doce'] };
+
 function Painel({ p, reload }) {
   const say = useToast();
+  const [cat, setCat] = useState('pao');
   const [img, setImg] = useState(null);
   const [busy, setBusy] = useState(false);
   const [txt, setTxt] = useState('');
@@ -26,11 +29,11 @@ function Painel({ p, reload }) {
   const avisar = async () => {
     if (p.ultimo_aviso && idade(p.ultimo_aviso) < 0.17 && !window.confirm('Você avisou há poucos minutos. Avisar de novo?')) return;
     setBusy(true);
-    const { data, error } = await supabase.from('fornadas').insert({ pani_id: p.id, img_url: img }).select('id').single();
+    const { data, error } = await supabase.from('fornadas').insert({ pani_id: p.id, img_url: img, cat }).select('id').single();
     if (error) { setBusy(false); return say('Não foi possível enviar o aviso.'); }
     const r = await supabase.functions.invoke('send-push', { body: { fornada_id: data.id } });
     setImg(null); await reload(); setBusy(false);
-    say(r.error ? 'Aviso publicado no app (o push não saiu agora).' : `🥖 Aviso enviado para ${r.data?.enviados ?? 0} aparelho(s)`);
+    say(r.error ? 'Aviso publicado no app (o push não saiu agora).' : `${CATS[cat][0]} Aviso enviado para ${r.data?.enviados ?? 0} aparelho(s)`);
   };
   const copiar = async () => {
     if (navigator.share) { try { await navigator.share({ title: p.nome, url: link }); return; } catch { /* cancelado */ } }
@@ -52,6 +55,11 @@ function Painel({ p, reload }) {
   return (
     <div className="p-4 flex flex-col gap-3">
       <div className="border border-stone-200 rounded-xl p-4 flex flex-col gap-3">
+        <div className="flex gap-2">
+          {Object.entries(CATS).map(([k, [e, l]]) => (
+            <button key={k} onClick={() => setCat(k)} className={`flex-1 rounded-lg py-1.5 text-sm border ${cat === k ? 'bg-stone-900 text-white border-stone-900' : 'border-stone-300'}`}>{e} {l}</button>
+          ))}
+        </div>
         <button onClick={avisar} disabled={busy} className="bg-red-600 text-white rounded-xl py-4 font-bold flex items-center justify-center gap-2 active:opacity-80 disabled:opacity-60">
           <Flame size={20} />{busy ? 'Enviando…' : 'Avisar fornada'}
         </button>

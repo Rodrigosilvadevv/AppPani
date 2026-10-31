@@ -3,7 +3,7 @@ import { supabase } from './supabase';
 /* ---------- tempo ---------- */
 const H = 3600000;
 export const idade = (t) => (Date.now() - new Date(t).getTime()) / H;
-export const fresco = (t) => idade(t) < 10; // selo "Fresquinho" nas primeiras 10 h
+export const fresco = (t, cat) => idade(t) < (cat === 'doce' ? 120 : 10); // pão/salgado: 10 h · doce: 5 dias
 export const tempo = (t) => {
   if (!t) return '';
   const m = Math.floor(idade(t) * 60);
