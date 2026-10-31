@@ -1,122 +1,277 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Home, ClipboardList, UtensilsCrossed, BookOpen, Users, MessagesSquare, Settings, Flame, Trash2, Send, MapPin, LogOut, Copy, Plus, Check } from 'lucide-react';
+import { Home, ClipboardList, UtensilsCrossed, BookOpen, Users, MessagesSquare, Settings, Flame, Trash2, Send, MapPin, LogOut, Copy, Plus, Minus, Check } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../auth/AuthProvider';
-import { Av, FotoBtn, Logo, NavBtn, Shell, Spinner, Vazio, btn, btn2, inp, useToast, Pic } from '../ui';
-import { DIAS, getHorarios, idade, money, slugify, tempo } from '../lib/util';
+import { Av, FotoBtn, Logo, NavBtn, Pic, Selo, Shell, Spinner, Vazio, btn, btn2, inp, useToast } from '../ui';
+import { DIAS, fresco, getHorarios, idade, money, slugify, tempo } from '../lib/util';
 import Chat from './Chat';
 
-/* ---------- Painel: botão "Avisar fornada" por categoria ---------- */
+/* ---------- helpers ---------- */
+const pn = (v) => parseFloat(String(v ?? '').replace(',', '.')) || 0; // "12,50" -> 12.5
+const fmt = (v) => Number(v || 0).toFixed(2).replace('.', ',');       // 12.5 -> "12,50"
+const chip = (on) => `rounded-full px-3 py-1 text-xs border whitespace-nowrap ${on ? 'bg-stone-900 text-white border-stone-900' : 'border-stone-300'}`;
+
+/* ---------- Painel: avisar fornada + feed de rolagem ---------- */
 const CATS = { pao: ['🥖', 'Pão'], salgado: ['🥟', 'Salgado'], doce: ['🍰', 'Doce'] };
+
+function Item({ it, p, apagar }) {
+  const [e, l] = CATS[it.cat] || CATS.pao;
+  const f = it.tipo === 'fornada';
+  return (
+    <article className="px-3 pb-4 mb-1 border-b border-stone-100">
+      <div className="flex items-center gap-2 py-2">
+        <Av src={p.foto_url} emoji={p.emoji} size={32} />
+        <span className="text-sm font-semibold">{p.nome}</span>
+        <span className="text-xs text-stone-400 flex-1">{tempo(it.created_at)}</span>
+        <button onClick={() => apagar(it)} aria-label="Apagar"><Trash2 size={16} className="text-stone-400" /></button>
+      </div>
+      <div className="relative rounded-2xl overflow-hidden border border-stone-200 shadow-sm">
+        <Pic src={it.img_url} emoji={f ? e : p.emoji} cls="aspect-square" />
+        {f && fresco(it.created_at, it.cat) && <div className="absolute top-3 left-3"><Selo txt={it.cat === 'doce' ? 'Fresco' : 'Fresquinho'} /></div>}
+      </div>
+      <div className="pt-2 text-sm">{f ? <b>{e} Fornada de {l.toLowerCase()} saindo agora!</b> : it.txt}</div>
+    </article>
+  );
+}
 
 function Painel({ p, reload }) {
   const say = useToast();
   const [cat, setCat] = useState('pao');
   const [img, setImg] = useState(null);
+  const [nome, setNome] = useState('');
+  const [preco, setPreco] = useState('');
   const [busy, setBusy] = useState(false);
+  const [bal, setBal] = useState([]);      // itens do balcão já cadastrados
+  const [feed, setFeed] = useState(null);
+  const [pub, setPub] = useState(false);
   const [txt, setTxt] = useState('');
   const [pimg, setPimg] = useState(null);
-  const [av, setAv] = useState('');
-  const [avisos, setAvisos] = useState([]);
-  const link = `${window.location.origin}/c/${p.slug}`;
 
-  const loadAv = useCallback(async () => {
-    const { data } = await supabase.from('avisos').select('*').eq('pani_id', p.id).order('created_at', { ascending: false }).limit(10);
-    setAvisos(data || []);
+  const loadBal = useCallback(async () => {
+    const { data } = await supabase.from('cardapio_itens').select('*').eq('pani_id', p.id).eq('tipo', 'balcao').order('nome');
+    setBal(data || []);
   }, [p.id]);
-  useEffect(() => { loadAv(); }, [loadAv]);
+  const loadFeed = useCallback(async () => {
+    const q = (t) => supabase.from(t).select('*').eq('pani_id', p.id).order('created_at', { ascending: false }).limit(30);
+    const [f, o] = await Promise.all([q('fornadas'), q('posts')]);
+    setFeed([...(f.data || []).map((x) => ({ ...x, tipo: 'fornada' })), ...(o.data || []).map((x) => ({ ...x, tipo: 'post' }))]
+      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at)));
+  }, [p.id]);
+  useEffect(() => { loadBal(); loadFeed(); }, [loadBal, loadFeed]);
+
+  const nomeCat = CATS[cat][1].toLowerCase();
+  const ult = feed?.find((x) => x.tipo === 'fornada' && x.cat === cat); // cada categoria tem o seu próprio último aviso
+
+  // salgado/doce avisado entra (ou volta a ficar ativo) no cardápio, tipo balcão
+  const paraCardapio = async (n) => {
+    const ja = bal.find((i) => i.nome.toLowerCase() === n.toLowerCase());
+    const pr = preco.trim() ? pn(preco) : null;
+    const dados = { ativo: true, ...(img && { img_url: img }), ...(pr != null && { preco: pr }) };
+    const { error } = ja
+      ? await supabase.from('cardapio_itens').update(dados).eq('id', ja.id)
+      : await supabase.from('cardapio_itens').insert({ pani_id: p.id, tipo: 'balcao', nome: n, descricao: '', preco: pr, img_url: img, ativo: true });
+    await loadBal();
+    return !error;
+  };
 
   const avisar = async () => {
-    if (p.ultimo_aviso && idade(p.ultimo_aviso) < 0.17 && !window.confirm('Você avisou há poucos minutos. Avisar de novo?')) return;
+    if (ult && idade(ult.created_at) < 0.17 && !window.confirm(`Você avisou ${nomeCat} há poucos minutos. Avisar de novo?`)) return;
     setBusy(true);
     const { data, error } = await supabase.from('fornadas').insert({ pani_id: p.id, img_url: img, cat }).select('id').single();
     if (error) { setBusy(false); return say('Não foi possível enviar o aviso.'); }
+    const n = nome.trim();
+    const noCardapio = cat !== 'pao' && n ? await paraCardapio(n) : false;
     const r = await supabase.functions.invoke('send-push', { body: { fornada_id: data.id } });
-    setImg(null); await reload(); setBusy(false);
-    say(r.error ? 'Aviso publicado no app (o push não saiu agora).' : `${CATS[cat][0]} Aviso enviado para ${r.data?.enviados ?? 0} aparelho(s)`);
+    setImg(null); setNome(''); setPreco('');
+    await Promise.all([reload(), loadFeed()]);
+    setBusy(false);
+    say(r.error ? 'Aviso publicado no app (o push não saiu agora).' : `${CATS[cat][0]} Aviso enviado para ${r.data?.enviados ?? 0} aparelho(s)${noCardapio ? ' · já está no cardápio' : ''}`);
   };
-  const copiar = async () => {
-    if (navigator.share) { try { await navigator.share({ title: p.nome, url: link }); return; } catch { /* cancelado */ } }
-    await navigator.clipboard?.writeText(link); say('Link do cardápio copiado');
-  };
+
   const postar = async () => {
     if (!txt.trim() && !pimg) return;
     const { error } = await supabase.from('posts').insert({ pani_id: p.id, txt: txt.trim(), img_url: pimg });
     if (error) return say('Não foi possível publicar.');
-    setTxt(''); setPimg(null); say('Publicado no feed');
+    setTxt(''); setPimg(null); setPub(false); loadFeed(); say('Publicado no feed');
   };
-  const enviarAviso = async () => {
-    if (!av.trim()) return;
-    const { error } = await supabase.from('avisos').insert({ pani_id: p.id, txt: av.trim(), ativo: false });
-    if (error) return say('Não foi possível enviar.');
-    setAv(''); loadAv(); say('Aviso enviado. O administrador escolhe se aparece para os clientes.');
+  const apagar = async (it) => {
+    if (!window.confirm('Apagar esta publicação?')) return;
+    const { error } = await supabase.from(it.tipo === 'fornada' ? 'fornadas' : 'posts').delete().eq('id', it.id);
+    if (error) return say('Não foi possível apagar.');
+    loadFeed();
   };
 
   return (
-    <div className="p-4 flex flex-col gap-3">
-      <div className="border border-stone-200 rounded-xl p-4 flex flex-col gap-3">
+    <div>
+      <div className="p-3 border-b border-stone-200 flex flex-col gap-2">
         <div className="flex gap-2">
           {Object.entries(CATS).map(([k, [e, l]]) => (
             <button key={k} onClick={() => setCat(k)} className={`flex-1 rounded-lg py-1.5 text-sm border ${cat === k ? 'bg-stone-900 text-white border-stone-900' : 'border-stone-300'}`}>{e} {l}</button>
           ))}
         </div>
+        {cat !== 'pao' && (
+          <>
+            <div className="flex gap-2">
+              <input className={inp} placeholder={`Qual ${nomeCat} saiu? (entra no cardápio)`} value={nome} onChange={(e) => setNome(e.target.value)} />
+              <input className={`${inp} !w-24`} inputMode="decimal" placeholder="Preço" value={preco} onChange={(e) => setPreco(e.target.value)} />
+            </div>
+            {bal.length > 0 && (
+              <div className="flex gap-2 overflow-x-auto pb-1">
+                {bal.map((i) => (
+                  <button key={i.id} onClick={() => { setNome(i.nome); setPreco(i.preco != null ? fmt(i.preco) : ''); }}
+                    className={`${chip(nome.trim().toLowerCase() === i.nome.toLowerCase())} ${i.ativo ? '' : 'opacity-50'}`}>{i.nome}</button>
+                ))}
+              </div>
+            )}
+          </>
+        )}
         <button onClick={avisar} disabled={busy} className="bg-red-600 text-white rounded-xl py-4 font-bold flex items-center justify-center gap-2 active:opacity-80 disabled:opacity-60">
           <Flame size={20} />{busy ? 'Enviando…' : 'Avisar fornada'}
         </button>
         <FotoBtn img={img} onUrl={setImg} label="Foto da fornada (opcional)" />
-        <p className="text-xs text-stone-500">{p.ultimo_aviso ? `Último aviso: ${tempo(p.ultimo_aviso)} (${new Date(p.ultimo_aviso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })})` : 'Você ainda não avisou nenhuma fornada.'}</p>
+        {feed && <p className="text-xs text-stone-500">{ult ? `Último aviso de ${nomeCat}: ${tempo(ult.created_at)}` : `Você ainda não avisou nenhuma fornada de ${nomeCat}.`}</p>}
       </div>
 
-      <div className="border border-stone-200 rounded-xl p-3 flex flex-col gap-2">
-        <div className="font-semibold text-sm">Link do seu cardápio</div>
-        <div className="flex gap-2"><input readOnly className={inp} value={link} onFocus={(e) => e.target.select()} /><button onClick={copiar} aria-label="Copiar" className={btn2}><Copy size={16} /></button></div>
+      <div className="px-3 py-2 border-b border-stone-200">
+        {!pub
+          ? <button onClick={() => setPub(true)} className={`${btn2} w-full flex items-center justify-center gap-2`}><Plus size={16} />Nova publicação</button>
+          : <div className="flex flex-col gap-2">
+              <FotoBtn img={pimg} onUrl={setPimg} />
+              <input className={inp} placeholder="Legenda" value={txt} onChange={(e) => setTxt(e.target.value)} />
+              <div className="flex gap-2">
+                <button onClick={() => { setPub(false); setTxt(''); setPimg(null); }} className={`flex-1 ${btn2}`}>Cancelar</button>
+                <button onClick={postar} className={`flex-1 ${btn}`}>Publicar</button>
+              </div>
+            </div>}
       </div>
 
-      <div className="border border-stone-200 rounded-xl p-3 flex flex-col gap-2">
-        <div className="font-semibold text-sm">Postar no feed</div>
-        <FotoBtn img={pimg} onUrl={setPimg} />
-        <input className={inp} placeholder="Legenda" value={txt} onChange={(e) => setTxt(e.target.value)} />
-        <button onClick={postar} className={btn}>Publicar</button>
-      </div>
-
-      <div className="border border-stone-200 rounded-xl p-3 flex flex-col gap-2">
-        <div className="font-semibold text-sm">Aviso para os clientes</div>
-        <input className={inp} placeholder="Ex.: Hoje fechamos às 15h" value={av} onChange={(e) => setAv(e.target.value)} />
-        <button onClick={enviarAviso} className={btn}>Enviar para aprovação</button>
-        {avisos.map((a) => <div key={a.id} className="flex justify-between gap-2 text-xs"><span>{a.txt}</span><span className={a.ativo ? 'text-green-600 font-semibold shrink-0' : 'text-stone-400 shrink-0'}>{a.ativo ? 'No ar' : 'Aguardando'}</span></div>)}
+      <div className="pt-2">
+        {feed === null ? <Spinner />
+          : feed.length === 0 ? <Vazio t="Seu feed está vazio. Avise a primeira fornada ou faça uma publicação." />
+          : feed.map((it) => <Item key={it.tipo + it.id} it={it} p={p} apagar={apagar} />)}
       </div>
     </div>
   );
 }
 
-/* ---------- Pedidos da chapa (tempo real) ---------- */
-const FLUXO = { novo: ['preparando', 'Preparar'], preparando: ['pronto', 'Pronto'], pronto: ['entregue', 'Entregue'] };
+/* ---------- Pedidos: recebido → preparando → pronto → finalizado ---------- */
+const FLUXO = { novo: ['preparando', 'Preparar'], preparando: ['pronto', 'Pronto'], pronto: ['entregue', 'Finalizar'] };
+const ROT = { novo: 'Recebido', preparando: 'Preparando', pronto: 'Pronto' };
 const COR = { novo: 'bg-red-100 text-red-700', preparando: 'bg-orange-100 text-orange-700', pronto: 'bg-green-100 text-green-700' };
-function Pedidos({ lista, recarregar }) {
+
+// preço do item: o que está salvo no pedido ou, se faltar, o preço atual do cardápio
+const precoDe = (i, menu) => i.preco ?? menu.find((m) => (i.id && m.id === i.id) || m.nome === i.nome)?.preco ?? 0;
+const soma = (l) => l.reduce((a, i) => a + pn(i.preco) * i.qtd, 0);
+
+function Editor({ ini, menu, novo, onSave, onCancel }) {
   const say = useToast();
-  const mudar = async (id, status) => {
-    const { error } = await supabase.from('pedidos').update({ status }).eq('id', id);
+  const [mesa, setMesa] = useState(ini.mesa ?? '');
+  const [itens, setItens] = useState(() => (ini.itens || []).map((i) => ({ ...i, preco: fmt(precoDe(i, menu)) })));
+  const [total, setTotal] = useState(fmt(ini.total));
+  const troca = (l) => { setItens(l); setTotal(fmt(soma(l))); }; // mexeu nos itens: o total acompanha
+  const add = (m) => {
+    const k = itens.findIndex((i) => (i.id && i.id === m.id) || i.nome === m.nome);
+    troca(k >= 0 ? itens.map((i, x) => (x === k ? { ...i, qtd: i.qtd + 1 } : i)) : [...itens, { id: m.id, nome: m.nome, preco: fmt(m.preco), qtd: 1 }]);
+  };
+  const mais = (k, d) => troca(itens.map((i, x) => (x === k ? { ...i, qtd: i.qtd + d } : i)).filter((i) => i.qtd > 0));
+  const setPreco = (k, v) => troca(itens.map((i, x) => (x === k ? { ...i, preco: v } : i)));
+  const salvar = () => {
+    if (novo && !String(mesa).trim()) return say('Informe a mesa.');
+    if (!itens.length) return say('Adicione pelo menos um item.');
+    onSave({ ...(novo && { mesa: String(mesa).trim() }), itens: itens.map((i) => ({ ...i, preco: pn(i.preco) })), total: pn(total) });
+  };
+  return (
+    <div className="mt-2 border border-stone-200 bg-stone-50 rounded-xl p-2 flex flex-col gap-2">
+      {novo && <input className={inp} placeholder="Mesa" value={mesa} onChange={(e) => setMesa(e.target.value)} />}
+      {itens.map((i, k) => (
+        <div key={k} className="flex items-center gap-2">
+          <span className="flex-1 min-w-0 truncate">{i.nome}</span>
+          <button onClick={() => mais(k, -1)} aria-label="Menos"><Minus size={16} /></button>
+          <b className="w-5 text-center">{i.qtd}</b>
+          <button onClick={() => mais(k, 1)} aria-label="Mais"><Plus size={16} /></button>
+          <input className={`${inp} !w-20 text-right`} inputMode="decimal" aria-label={`Preço de ${i.nome}`} value={i.preco} onChange={(e) => setPreco(k, e.target.value)} />
+        </div>
+      ))}
+      <div className="text-xs text-stone-500">Cardápio — toque para adicionar:</div>
+      {menu.length === 0
+        ? <p className="text-xs text-stone-400">Seu cardápio não tem itens ativos.</p>
+        : <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto">
+            {menu.map((m) => <button key={m.id} onClick={() => add(m)} className={chip(false)}>{m.nome}{m.preco != null && ` · ${money(m.preco)}`}</button>)}
+          </div>}
+      <label className="flex items-center justify-between font-semibold">Total (R$)
+        <input className={`${inp} !w-28 text-right`} inputMode="decimal" value={total} onChange={(e) => setTotal(e.target.value)} />
+      </label>
+      <div className="flex gap-2">
+        <button onClick={onCancel} className={`flex-1 ${btn2}`}>Cancelar</button>
+        <button onClick={salvar} className={`flex-1 ${btn}`}>Salvar</button>
+      </div>
+    </div>
+  );
+}
+
+function Pedidos({ lista, recarregar, menu, pid }) {
+  const say = useToast();
+  const [f, setF] = useState('todos');
+  const [ed, setEd] = useState(null); // id do pedido em edição, ou 'novo'
+  const n = (s) => lista.filter((o) => o.status === s).length;
+  const L = lista.filter((o) => f === 'todos' || o.status === f);
+
+  const mudar = async (ids, status) => {
+    const { error } = await supabase.from('pedidos').update({ status }).in('id', ids);
     if (error) say('Não foi possível atualizar o pedido.'); else recarregar();
   };
-  if (!lista.length) return <Vazio t="Nenhum pedido em aberto. Os pedidos feitos pelo seu link aparecem aqui na hora." />;
+  const salvar = async (o, d) => {
+    const { error } = o
+      ? await supabase.from('pedidos').update(d).eq('id', o.id)
+      : await supabase.from('pedidos').insert({ pani_id: pid, status: 'novo', ...d });
+    if (error) return say('Não foi possível salvar o pedido.');
+    setEd(null); recarregar(); say(o ? 'Pedido atualizado' : 'Pedido criado');
+  };
+
   return (
     <div className="p-3 flex flex-col gap-3">
-      {lista.map((o) => (
+      <div className="flex gap-2 overflow-x-auto">
+        {[['todos', 'Todos', lista.length], ['novo', 'Recebidos', n('novo')], ['preparando', 'Preparando', n('preparando')], ['pronto', 'Prontos', n('pronto')]].map(([k, l, c]) => (
+          <button key={k} onClick={() => setF(k)} className={chip(f === k)}>{l} {c}</button>
+        ))}
+      </div>
+      <div className="flex gap-2">
+        <button onClick={() => setEd('novo')} className={`flex-1 ${btn2} flex items-center justify-center gap-2`}><Plus size={16} />Novo pedido</button>
+        {n('pronto') > 0 && (
+          <button onClick={() => mudar(lista.filter((o) => o.status === 'pronto').map((o) => o.id), 'entregue')} className={`flex-1 ${btn} flex items-center justify-center gap-2`}>
+            <Check size={16} />Finalizar prontos ({n('pronto')})
+          </button>
+        )}
+      </div>
+      {ed === 'novo' && <Editor novo ini={{ itens: [], total: 0 }} menu={menu} onSave={(d) => salvar(null, d)} onCancel={() => setEd(null)} />}
+      {!L.length && <Vazio t="Nenhum pedido em aberto. Os pedidos feitos pelo seu link aparecem aqui na hora." />}
+
+      {L.map((o) => (
         <div key={o.id} className="border border-stone-200 rounded-xl p-3 text-sm">
           <div className="flex items-center justify-between">
             <b className="text-base">Mesa {o.mesa}</b>
-            <span className={`text-xs font-semibold rounded-full px-2 py-0.5 ${COR[o.status]}`}>{o.status}</span>
+            <span className={`text-xs font-semibold rounded-full px-2 py-0.5 ${COR[o.status]}`}>{ROT[o.status] || o.status}</span>
           </div>
           <div className="text-xs text-stone-500">{o.cliente && `${o.cliente} · `}{tempo(o.created_at)}</div>
-          <ul className="mt-2">{o.itens.map((i, k) => <li key={k}>{i.qtd}× {i.nome}</li>)}</ul>
-          {o.obs && <p className="mt-1 text-xs bg-yellow-50 rounded px-2 py-1">Obs.: {o.obs}</p>}
-          <div className="flex items-center justify-between mt-3">
-            <b>{money(o.total)}</b>
-            <div className="flex gap-2">
-              <button onClick={() => mudar(o.id, 'cancelado')} className={btn2}>Cancelar</button>
-              {FLUXO[o.status] && <button onClick={() => mudar(o.id, FLUXO[o.status][0])} className={btn}>{FLUXO[o.status][1]}</button>}
-            </div>
-          </div>
+
+          {ed === o.id
+            ? <Editor ini={o} menu={menu} onSave={(d) => salvar(o, d)} onCancel={() => setEd(null)} />
+            : <>
+                <ul className="mt-2">
+                  {o.itens.map((i, k) => {
+                    const pr = pn(precoDe(i, menu));
+                    return <li key={k} className="flex justify-between"><span>{i.qtd}× {i.nome}</span>{pr > 0 && <span className="text-stone-500">{money(pr * i.qtd)}</span>}</li>;
+                  })}
+                </ul>
+                {o.obs && <p className="mt-1 text-xs bg-yellow-50 rounded px-2 py-1">Obs.: {o.obs}</p>}
+                <div className="flex items-center justify-between mt-2 border-t border-stone-100 pt-2"><span className="text-stone-500">Total</span><b className="text-base">{money(o.total)}</b></div>
+                {FLUXO[o.status] && <button onClick={() => mudar([o.id], FLUXO[o.status][0])} className={`${btn} w-full mt-3`}>{FLUXO[o.status][1]}</button>}
+                <div className="flex gap-2 mt-2">
+                  <button onClick={() => setEd(o.id)} className={`flex-1 ${btn2}`}>Alterar valor</button>
+                  {o.status !== 'pronto' && <button onClick={() => mudar([o.id], 'entregue')} className={`flex-1 ${btn2}`}>Finalizar</button>}
+                  <button onClick={() => window.confirm('Cancelar este pedido?') && mudar([o.id], 'cancelado')} className={`flex-1 ${btn2}`}>Cancelar</button>
+                </div>
+              </>}
         </div>
       ))}
     </div>
@@ -129,12 +284,17 @@ function CardapioAdm({ p }) {
   const say = useToast();
   const [itens, setItens] = useState([]);
   const [f, setF] = useState({ tipo: 'chapa', nome: '', descricao: '', preco: '', img: null });
+  const link = `${window.location.origin}/c/${p.slug}`;
   const load = useCallback(async () => {
     const { data } = await supabase.from('cardapio_itens').select('*').eq('pani_id', p.id).order('created_at', { ascending: false });
     setItens(data || []);
   }, [p.id]);
   useEffect(() => { load(); }, [load]);
 
+  const copiar = async () => {
+    if (navigator.share) { try { await navigator.share({ title: p.nome, url: link }); return; } catch { /* cancelado */ } }
+    await navigator.clipboard?.writeText(link); say('Link do cardápio copiado');
+  };
   const add = async () => {
     if (!f.nome.trim()) return;
     const { error } = await supabase.from('cardapio_itens').insert({
@@ -149,6 +309,11 @@ function CardapioAdm({ p }) {
 
   return (
     <div className="p-4">
+      <div className="border border-stone-200 rounded-xl p-3 flex flex-col gap-2 mb-3">
+        <div className="font-semibold text-sm">Link do seu cardápio</div>
+        <div className="flex gap-2"><input readOnly className={inp} value={link} onFocus={(e) => e.target.select()} /><button onClick={copiar} aria-label="Copiar" className={btn2}><Copy size={16} /></button></div>
+        <p className="text-xs text-stone-500">Salgados e doces avisados no Painel entram aqui sozinhos, em Balcão.</p>
+      </div>
       <div className="border border-stone-200 rounded-xl p-3 flex flex-col gap-2">
         <div className="flex gap-2">
           {TIPOS.map(([k, l]) => (
@@ -237,7 +402,7 @@ function Clientes({ p }) {
   );
 }
 
-/* ---------- Ajustes: dados, horários, localização, comentários ---------- */
+/* ---------- Ajustes: dados, horários, localização, avisos, comentários ---------- */
 function Horarios({ value, onChange }) {
   const h = getHorarios({ horarios: value });
   const set = (i, k, v) => onChange({ ...h, [i]: { ...h[i], [k]: v } });
@@ -252,6 +417,31 @@ function Horarios({ value, onChange }) {
             : <span className="text-stone-400">Fechado</span>}
         </div>
       ))}
+    </div>
+  );
+}
+
+function AvisoAdm({ p }) {
+  const say = useToast();
+  const [av, setAv] = useState('');
+  const [avisos, setAvisos] = useState([]);
+  const load = useCallback(async () => {
+    const { data } = await supabase.from('avisos').select('*').eq('pani_id', p.id).order('created_at', { ascending: false }).limit(10);
+    setAvisos(data || []);
+  }, [p.id]);
+  useEffect(() => { load(); }, [load]);
+  const enviar = async () => {
+    if (!av.trim()) return;
+    const { error } = await supabase.from('avisos').insert({ pani_id: p.id, txt: av.trim(), ativo: false });
+    if (error) return say('Não foi possível enviar.');
+    setAv(''); load(); say('Aviso enviado. O administrador escolhe se aparece para os clientes.');
+  };
+  return (
+    <div className="border border-stone-200 rounded-xl p-3 flex flex-col gap-2">
+      <div className="font-semibold text-sm">Aviso para os clientes</div>
+      <input className={inp} placeholder="Ex.: Hoje fechamos às 15h" value={av} onChange={(e) => setAv(e.target.value)} />
+      <button onClick={enviar} className={btn}>Enviar para aprovação</button>
+      {avisos.map((a) => <div key={a.id} className="flex justify-between gap-2 text-xs"><span>{a.txt}</span><span className={a.ativo ? 'text-green-600 font-semibold shrink-0' : 'text-stone-400 shrink-0'}>{a.ativo ? 'No ar' : 'Aguardando'}</span></div>)}
     </div>
   );
 }
@@ -320,6 +510,8 @@ function Ajustes({ p, reload }) {
       <Horarios value={f.horarios} onChange={(horarios) => setF({ ...f, horarios })} />
       <button onClick={salvar} disabled={busy} className={btn}>{busy ? 'Salvando…' : 'Salvar alterações'}</button>
 
+      <div className="mt-2"><AvisoAdm p={p} /></div>
+
       <div className="font-semibold text-sm mt-2">Comentários ({com.length})</div>
       {com.length === 0 && <Vazio t="Ainda não há comentários." />}
       {com.map((c) => <Coment key={c.id} c={c} nome={p.nome} reload={loadCom} />)}
@@ -335,6 +527,7 @@ export default function PaniApp() {
   const [p, setP] = useState(undefined);
   const [tab, setTab] = useState('painel');
   const [pedidos, setPedidos] = useState([]);
+  const [menu, setMenu] = useState([]);
 
   const reload = useCallback(async () => {
     const { data } = await supabase.from('panis').select('*').eq('owner', user.id).maybeSingle();
@@ -343,25 +536,28 @@ export default function PaniApp() {
   useEffect(() => { reload(); }, [reload]);
 
   const pid = p?.id;
+  const loadPedidos = useCallback(async () => {
+    if (!pid) return;
+    const { data } = await supabase.from('pedidos').select('*').eq('pani_id', pid).in('status', ['novo', 'preparando', 'pronto']).order('created_at');
+    setPedidos(data || []);
+  }, [pid]);
+
   useEffect(() => {
     if (!pid) return;
-    const load = async () => {
-      const { data } = await supabase.from('pedidos').select('*').eq('pani_id', pid).in('status', ['novo', 'preparando', 'pronto']).order('created_at');
-      setPedidos(data || []);
-    };
-    load();
+    loadPedidos();
     const ch = supabase.channel(`pedidos-${pid}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'pedidos', filter: `pani_id=eq.${pid}` }, (ev) => {
         if (ev.eventType === 'INSERT') { say(`🔔 Novo pedido — mesa ${ev.new.mesa}`); navigator.vibrate?.(200); }
-        load();
+        loadPedidos();
       }).subscribe();
     return () => supabase.removeChannel(ch);
-  }, [pid, say]);
+  }, [pid, say, loadPedidos]);
 
-  const recarregarPedidos = async () => {
-    const { data } = await supabase.from('pedidos').select('*').eq('pani_id', pid).in('status', ['novo', 'preparando', 'pronto']).order('created_at');
-    setPedidos(data || []);
-  };
+  // cardápio real (itens ativos), atualizado toda vez que a aba Pedidos é aberta
+  useEffect(() => {
+    if (!pid || tab !== 'pedidos') return;
+    supabase.from('cardapio_itens').select('*').eq('pani_id', pid).eq('ativo', true).order('tipo').order('nome').then(({ data }) => setMenu(data || []));
+  }, [pid, tab]);
 
   if (p === undefined) return <Shell top={<Logo />} nav={null}><Spinner /></Shell>;
   if (p === null) return <Shell top={<Logo />} nav={null}><Vazio t="Não encontramos sua panificadora. Fale com o suporte." /></Shell>;
@@ -371,7 +567,7 @@ export default function PaniApp() {
     <Shell top={<><Logo /><span className="text-xs text-stone-500 truncate">{p.nome}</span></>}
       nav={T.map(([k, l, I]) => <NavBtn key={k} icon={I} label={l} on={tab === k} click={() => setTab(k)} badge={k === 'pedidos' ? pedidos.filter((o) => o.status === 'novo').length : 0} />)}>
       {tab === 'painel' && <Painel p={p} reload={reload} />}
-      {tab === 'pedidos' && <Pedidos lista={pedidos} recarregar={recarregarPedidos} />}
+      {tab === 'pedidos' && <Pedidos lista={pedidos} recarregar={loadPedidos} menu={menu} pid={pid} />}
       {tab === 'cardapio' && <CardapioAdm p={p} />}
       {tab === 'receitas' && <Receitas p={p} />}
       {tab === 'clientes' && <Clientes p={p} />}
