@@ -14,26 +14,23 @@ const GoogleIcon = () => (
 
 const ERROS = {
   'Invalid login credentials': 'E-mail/telefone ou senha incorretos.',
-  'Email not confirmed': 'Confirme seu e-mail antes de entrar (ou desative a confirmação no Supabase).',
-  'Phone not confirmed': 'Telefone não confirmado (desative a confirmação de telefone no Supabase).',
-  'User already registered': 'Já existe uma conta com esses dados. Tente entrar.',
+  'Email not confirmed': 'Conta ainda não liberada. Desligue "Confirm email" no Supabase.',
 };
 
 const traduz = (m = '') =>
   ERROS[m] ||
   (m.includes('rate limit') || m.includes('Too Many Requests')
-    ? 'Muitas tentativas seguidas. Aguarde 1 minuto e tente novamente.'
+    ? 'Muitas tentativas seguidas. Aguarde um pouco e tente novamente.'
     : m);
 
 export default function Login({ admin = false }) {
-  const [modo, setModo] = useState('entrar'); // entrar | criar | recuperar
+  const [modo, setModo] = useState('entrar'); // entrar | criar
   const [via, setVia] = useState('email');    // email | fone
   const [f, setF] = useState({ nome: '', email: '', fone: '', senha: '', tipo: 'cliente' });
   const [msg, setMsg] = useState(null);
   const [busy, setBusy] = useState(false);
 
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
-  const fone = fonePadrao(f.fone);
 
   const run = async (fn) => {
     setBusy(true);
@@ -47,44 +44,43 @@ export default function Login({ admin = false }) {
     }
   };
 
-  const troca = (m) => {
-    setModo(m);
-    setMsg(null);
-    if (m === 'recuperar') setVia('email'); // recuperação é só por e-mail
-  };
+  const troca = (m) => { setModo(m); setMsg(null); };
 
   const enviar = (e) => {
     e.preventDefault();
     run(async () => {
-      const id = via === 'email' ? { email: f.email.trim() } : { phone: fone };
+      // Telefone vira um login interno (sem SMS, sem verificação). O número real fica salvo no perfil.
+      const digitos = fonePadrao(f.fone).replace(/\D/g, '');
+      if (via === 'fone' && digitos.length < 12) throw new Error('Digite o telefone com DDD.');
+      const email = via === 'email' ? f.email.trim().toLowerCase() : `${digitos}@fone.apppani.app`;
 
       if (modo === 'entrar') {
-        const { error } = await supabase.auth.signInWithPassword({ ...id, password: f.senha });
+        const { error } = await supabase.auth.signInWithPassword({ email, password: f.senha });
         if (error) throw error;
-      } else if (modo === 'criar') {
-        if (!f.nome.trim()) throw new Error('Informe o nome.');
-        if (f.senha.length < 8) throw new Error('A senha precisa ter pelo menos 8 caracteres.');
-
-        const { data, error } = await supabase.auth.signUp({
-          ...id,
-          password: f.senha,
-          options: {
-            data: { nome: f.nome.trim(), role: f.tipo },
-            emailRedirectTo: window.location.origin,
-          },
-        });
-        if (error) throw error;
-        // Com a confirmação desligada no Supabase, já vem a sessão e o app abre sozinho.
-        if (!data.session) {
-          setMsg({ t: 'Conta criada, mas o Supabase ainda exige confirmação. Desative "Confirm email" / "Enable phone confirmations" em Authentication → Providers.' });
-        }
-      } else {
-        const { error } = await supabase.auth.resetPasswordForEmail(f.email.trim(), {
-          redirectTo: `${window.location.origin}/redefinir-senha`,
-        });
-        if (error) throw error;
-        setMsg({ t: 'Enviamos um link de recuperação para o seu e-mail.' });
+        return;
       }
+
+      if (!f.nome.trim()) throw new Error('Informe o nome.');
+      if (f.senha.length < 6) throw new Error('A senha precisa ter pelo menos 6 caracteres.');
+
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password: f.senha,
+        options: { data: { nome: f.nome.trim(), role: f.tipo, telefone: via === 'fone' ? fonePadrao(f.fone) : null } },
+      });
+      if (error) {
+        if (/already registered/i.test(error.message)) {
+          setModo('entrar');
+          throw new Error(`Já existe uma conta com ${via === 'email' ? 'esse e-mail' : 'esse telefone'}. Faça o login.`);
+        }
+        throw error;
+      }
+      // Se já existir e o Supabase devolver usuário sem identidade, também manda para o login
+      if (data.user && data.user.identities?.length === 0) {
+        setModo('entrar');
+        throw new Error(`Já existe uma conta com ${via === 'email' ? 'esse e-mail' : 'esse telefone'}. Faça o login.`);
+      }
+      if (!data.session) throw new Error('Conta criada, mas o Supabase ainda exige confirmação. Desligue "Confirm email" em Authentication → Providers → Email.');
     });
   };
 
@@ -112,22 +108,15 @@ export default function Login({ admin = false }) {
           </div>
         )}
 
-        {modo !== 'recuperar' && (
-          <>
-            <button type="button" onClick={google} disabled={busy} className={`${btn2} flex items-center justify-center gap-2`}><GoogleIcon />Continuar com Google</button>
-            <div className="flex items-center gap-3 text-xs text-stone-400"><span className="flex-1 h-px bg-stone-200" />ou<span className="flex-1 h-px bg-stone-200" /></div>
-          </>
-        )}
-        {modo === 'recuperar' && <p className="text-sm font-semibold">Recuperar senha</p>}
+        <button type="button" onClick={google} disabled={busy} className={`${btn2} flex items-center justify-center gap-2`}><GoogleIcon />Continuar com Google</button>
+        <div className="flex items-center gap-3 text-xs text-stone-400"><span className="flex-1 h-px bg-stone-200" />ou<span className="flex-1 h-px bg-stone-200" /></div>
 
-        {modo !== 'recuperar' && (
-          <div className="flex gap-2">
-            {[['email', 'E-mail'], ['fone', 'Telefone']].map(([k, l]) => (
-              <button key={k} type="button" onClick={() => { setVia(k); setMsg(null); }}
-                className={`flex-1 rounded-full py-1.5 text-xs border ${via === k ? 'bg-stone-900 text-white border-stone-900' : 'border-stone-300'}`}>{l}</button>
-            ))}
-          </div>
-        )}
+        <div className="flex gap-2">
+          {[['email', 'E-mail'], ['fone', 'Telefone']].map(([k, l]) => (
+            <button key={k} type="button" onClick={() => { setVia(k); setMsg(null); }}
+              className={`flex-1 rounded-full py-1.5 text-xs border ${via === k ? 'bg-stone-900 text-white border-stone-900' : 'border-stone-300'}`}>{l}</button>
+          ))}
+        </div>
 
         <form onSubmit={enviar} className="flex flex-col gap-3">
           {modo === 'criar' && (
@@ -146,21 +135,14 @@ export default function Login({ admin = false }) {
             ? <input className={inp} type="email" required placeholder="E-mail" value={f.email} onChange={set('email')} autoComplete="email" />
             : <input className={inp} type="tel" required inputMode="tel" placeholder="Telefone com DDD" value={f.fone} onChange={set('fone')} autoComplete="tel" />}
 
-          {modo !== 'recuperar' && (
-            <input className={inp} type="password" required placeholder={modo === 'criar' ? 'Senha (mín. 8 caracteres)' : 'Senha'} value={f.senha} onChange={set('senha')} autoComplete={modo === 'criar' ? 'new-password' : 'current-password'} />
-          )}
+          <input className={inp} type="password" required placeholder={modo === 'criar' ? 'Senha (mín. 6 caracteres)' : 'Senha'} value={f.senha} onChange={set('senha')} autoComplete={modo === 'criar' ? 'new-password' : 'current-password'} />
 
           <button type="submit" className={btn} disabled={busy}>
-            {busy ? 'Aguarde…' : modo === 'entrar' ? 'Entrar' : modo === 'criar' ? 'Criar conta' : 'Enviar link de recuperação'}
+            {busy ? 'Aguarde…' : modo === 'entrar' ? 'Entrar' : 'Criar conta'}
           </button>
         </form>
 
         {msg && <p role="alert" className={`text-sm rounded-lg px-3 py-2 ${msg.erro ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-800'}`}>{msg.t}</p>}
-
-        <div className="text-center text-sm">
-          {modo === 'entrar' && <button type="button" onClick={() => troca('recuperar')} className="text-red-700 font-semibold">Esqueci minha senha</button>}
-          {modo === 'recuperar' && <button type="button" onClick={() => troca('entrar')} className="text-red-700 font-semibold">Voltar para entrar</button>}
-        </div>
       </div>
     </div>
   );
