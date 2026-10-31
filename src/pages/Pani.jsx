@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Home, ClipboardList, UtensilsCrossed, BookOpen, Users, MessagesSquare, Settings, Flame, Trash2, Send, MapPin, LogOut, Copy, Plus, Minus, Check } from 'lucide-react';
+import { Home, ClipboardList, UtensilsCrossed, BookOpen, Users, MessagesSquare, Settings, Flame, Trash2, Send, MapPin, LogOut, Copy, Plus, Minus, Check, Eye, EyeOff, Bell } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../auth/AuthProvider';
 import { Av, FotoBtn, Logo, NavBtn, Pic, Selo, Shell, Spinner, Vazio, btn, btn2, inp, useToast } from '../ui';
 import { DIAS, fresco, getHorarios, idade, money, slugify, tempo } from '../lib/util';
+import { ativarPush, desativarPush, pushStatus } from '../lib/push';
 import Chat from './Chat';
 
 /* ---------- helpers ---------- */
@@ -13,6 +14,17 @@ const chip = (on) => `rounded-full px-3 py-1 text-xs border whitespace-nowrap ${
 
 /* ---------- Painel: avisar fornada + feed de rolagem ---------- */
 const CATS = { pao: ['🥖', 'Pão'], salgado: ['🥟', 'Salgado'], doce: ['🍰', 'Doce'] };
+const EX = { pao: 'Pão francês', salgado: 'Coxinha', doce: 'Brigadeiro' };
+const key = (s) => String(s).trim().toLowerCase();
+
+function Switch({ on, set, label }) {
+  return (
+    <button type="button" role="switch" aria-checked={on} aria-label={label} onClick={() => set(!on)}
+      className={`shrink-0 w-11 h-6 rounded-full p-0.5 transition-colors ${on ? 'bg-red-600' : 'bg-stone-300'}`}>
+      <span className={`block w-5 h-5 rounded-full bg-white transform transition-transform ${on ? 'translate-x-5' : ''}`} />
+    </button>
+  );
+}
 
 function Item({ it, p, apagar }) {
   const [e, l] = CATS[it.cat] || CATS.pao;
@@ -30,6 +42,7 @@ function Item({ it, p, apagar }) {
         {f && fresco(it.created_at, it.cat) && <div className="absolute top-3 left-3"><Selo txt={it.cat === 'doce' ? 'Fresco' : 'Fresquinho'} /></div>}
       </div>
       <div className="pt-2 text-sm">{f ? <b>{e} Fornada de {l.toLowerCase()} saindo agora!</b> : it.txt}</div>
+      {f && it.itens?.length > 0 && <div className="text-sm text-stone-600">{it.itens.join(' · ')}</div>}
     </article>
   );
 }
@@ -37,6 +50,8 @@ function Item({ it, p, apagar }) {
 function Painel({ p, reload }) {
   const say = useToast();
   const [cat, setCat] = useState('pao');
+  const [listas, setListas] = useState({ pao: [], salgado: [], doce: [] });          // itens de cada categoria, separados
+  const [feedOn, setFeedOn] = useState({ pao: false, salgado: true, doce: true });    // publicar no feed? (pão: só notificação)
   const [img, setImg] = useState(null);
   const [nome, setNome] = useState('');
   const [preco, setPreco] = useState('');
@@ -60,32 +75,56 @@ function Painel({ p, reload }) {
   useEffect(() => { loadBal(); loadFeed(); }, [loadBal, loadFeed]);
 
   const nomeCat = CATS[cat][1].toLowerCase();
+  const lista = listas[cat];
+  const setLista = (fn) => setListas((s) => ({ ...s, [cat]: fn(s[cat]) }));
   const ult = feed?.find((x) => x.tipo === 'fornada' && x.cat === cat); // cada categoria tem o seu próprio último aviso
+  const vis = feed?.filter((x) => x.tipo !== 'fornada' || x.feed !== false); // aviso sem post não aparece na rolagem
 
-  // salgado/doce avisado entra (ou volta a ficar ativo) no cardápio, tipo balcão
-  const paraCardapio = async (n) => {
-    const ja = bal.find((i) => i.nome.toLowerCase() === n.toLowerCase());
-    const pr = preco.trim() ? pn(preco) : null;
-    const dados = { ativo: true, ...(img && { img_url: img }), ...(pr != null && { preco: pr }) };
-    const { error } = ja
-      ? await supabase.from('cardapio_itens').update(dados).eq('id', ja.id)
-      : await supabase.from('cardapio_itens').insert({ pani_id: p.id, tipo: 'balcao', nome: n, descricao: '', preco: pr, img_url: img, ativo: true });
+  // botões: itens já cadastrados desta categoria + os digitados agora
+  const dispo = bal.filter((i) => i.cat === cat).map((i) => ({ nome: i.nome, preco: i.preco != null ? fmt(i.preco) : '', off: !i.ativo }));
+  const chips = [...dispo, ...lista.filter((i) => !dispo.some((d) => key(d.nome) === key(i.nome)))];
+  const toggle = (c) => setLista((l) => (l.some((x) => key(x.nome) === key(c.nome))
+    ? l.filter((x) => key(x.nome) !== key(c.nome))
+    : [...l, { nome: c.nome, preco: c.preco }]));
+  const addDigitado = () => {
+    if (!nome.trim()) return;
+    setLista((l) => [...l.filter((x) => key(x.nome) !== key(nome)), { nome: nome.trim(), preco }]);
+    setNome(''); setPreco('');
+  };
+
+  // todos os itens do aviso entram (ou voltam a ficar ativos) no cardápio, tipo balcão
+  const paraCardapio = async (itens) => {
+    const foto = itens.length === 1 && feedOn[cat] ? img : null; // a foto da fornada só vai para o item quando é um só
+    const res = await Promise.all(itens.map(async (it) => {
+      const ja = bal.find((i) => key(i.nome) === key(it.nome));
+      const pr = String(it.preco).trim() ? pn(it.preco) : null;
+      const dados = { cat, ativo: true, ...(foto && { img_url: foto }), ...(pr != null && { preco: pr }) };
+      const { error } = ja
+        ? await supabase.from('cardapio_itens').update(dados).eq('id', ja.id)
+        : await supabase.from('cardapio_itens').insert({ pani_id: p.id, tipo: 'balcao', nome: it.nome, descricao: '', preco: pr, img_url: foto, ...dados });
+      return !error;
+    }));
     await loadBal();
-    return !error;
+    return res.filter(Boolean).length;
   };
 
   const avisar = async () => {
+    const pend = nome.trim() ? [{ nome: nome.trim(), preco }] : []; // o que está digitado e ainda não foi adicionado também entra
+    const itens = [...lista.filter((i) => !pend.some((x) => key(x.nome) === key(i.nome))), ...pend];
     if (ult && idade(ult.created_at) < 0.17 && !window.confirm(`Você avisou ${nomeCat} há poucos minutos. Avisar de novo?`)) return;
     setBusy(true);
-    const { data, error } = await supabase.from('fornadas').insert({ pani_id: p.id, img_url: img, cat }).select('id').single();
+    const { data, error } = await supabase.from('fornadas').insert({
+      pani_id: p.id, cat, feed: feedOn[cat], img_url: feedOn[cat] ? img : null, itens: itens.map((i) => i.nome),
+    }).select('id').single();
     if (error) { setBusy(false); return say('Não foi possível enviar o aviso.'); }
-    const n = nome.trim();
-    const noCardapio = cat !== 'pao' && n ? await paraCardapio(n) : false;
+    const salvos = itens.length ? await paraCardapio(itens) : 0;
     const r = await supabase.functions.invoke('send-push', { body: { fornada_id: data.id } });
-    setImg(null); setNome(''); setPreco('');
+    setListas((s) => ({ ...s, [cat]: [] })); setNome(''); setPreco(''); setImg(null);
     await Promise.all([reload(), loadFeed()]);
     setBusy(false);
-    say(r.error ? 'Aviso publicado no app (o push não saiu agora).' : `${CATS[cat][0]} Aviso enviado para ${r.data?.enviados ?? 0} aparelho(s)${noCardapio ? ' · já está no cardápio' : ''}`);
+    say(r.error
+      ? (feedOn[cat] ? 'Aviso publicado no app (o push não saiu agora).' : 'O push não saiu agora. Tente de novo.')
+      : `${CATS[cat][0]} Aviso enviado para ${r.data?.enviados ?? 0} aparelho(s)${salvos ? ` · ${salvos} no cardápio` : ''}`);
   };
 
   const postar = async () => {
@@ -103,33 +142,39 @@ function Painel({ p, reload }) {
 
   return (
     <div>
+      {p.visivel === false && <div className="m-3 mb-0 rounded-xl bg-yellow-50 border border-yellow-200 px-3 py-2 text-xs">Sua pani está oculta: os clientes não veem seus avisos nem posts. Para mostrar, vá em Ajustes.</div>}
       <div className="p-3 border-b border-stone-200 flex flex-col gap-2">
         <div className="flex gap-2">
           {Object.entries(CATS).map(([k, [e, l]]) => (
-            <button key={k} onClick={() => setCat(k)} className={`flex-1 rounded-lg py-1.5 text-sm border ${cat === k ? 'bg-stone-900 text-white border-stone-900' : 'border-stone-300'}`}>{e} {l}</button>
+            <button key={k} onClick={() => setCat(k)} className={`flex-1 rounded-lg py-1.5 text-sm border ${cat === k ? 'bg-stone-900 text-white border-stone-900' : 'border-stone-300'}`}>{e} {l}{listas[k].length > 0 && ` (${listas[k].length})`}</button>
           ))}
         </div>
-        {cat !== 'pao' && (
-          <>
-            <div className="flex gap-2">
-              <input className={inp} placeholder={`Qual ${nomeCat} saiu? (entra no cardápio)`} value={nome} onChange={(e) => setNome(e.target.value)} />
-              <input className={`${inp} !w-24`} inputMode="decimal" placeholder="Preço" value={preco} onChange={(e) => setPreco(e.target.value)} />
-            </div>
-            {bal.length > 0 && (
-              <div className="flex gap-2 overflow-x-auto pb-1">
-                {bal.map((i) => (
-                  <button key={i.id} onClick={() => { setNome(i.nome); setPreco(i.preco != null ? fmt(i.preco) : ''); }}
-                    className={`${chip(nome.trim().toLowerCase() === i.nome.toLowerCase())} ${i.ativo ? '' : 'opacity-50'}`}>{i.nome}</button>
-                ))}
-              </div>
-            )}
-          </>
+
+        <div className="flex gap-2">
+          <input className={inp} placeholder={`Item de ${nomeCat} (ex.: ${EX[cat]})`} value={nome} onChange={(e) => setNome(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addDigitado()} />
+          <input className={`${inp} !w-24`} inputMode="decimal" placeholder="Preço" value={preco} onChange={(e) => setPreco(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addDigitado()} />
+          <button onClick={addDigitado} aria-label="Adicionar item" className={btn2}><Plus size={16} /></button>
+        </div>
+        {chips.length > 0 && (
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            {chips.map((c) => {
+              const s = lista.find((x) => key(x.nome) === key(c.nome));
+              const pr = (s || c).preco;
+              return <button key={c.nome} onClick={() => toggle(c)} className={`${chip(!!s)} ${c.off && !s ? 'opacity-50' : ''}`}>{c.nome}{pr && ` · ${money(pn(pr))}`}{s && ' ×'}</button>;
+            })}
+          </div>
         )}
+        <p className="text-xs text-stone-500">Adicione quantos itens quiser. Eles entram no cardápio e o aviso vai para todos que pediram aviso de {nomeCat}.</p>
+
+        {feedOn[cat] && <FotoBtn img={img} onUrl={setImg} label="Foto da fornada (opcional)" />}
+        <div className="flex items-center gap-3 text-sm">
+          <div className="flex-1"><b>Publicar no feed</b><div className="text-xs text-stone-500">{feedOn[cat] ? 'Aparece no feed dos clientes.' : 'Só envia a notificação, sem post.'}</div></div>
+          <Switch on={feedOn[cat]} set={(v) => setFeedOn((s) => ({ ...s, [cat]: v }))} label="Publicar no feed" />
+        </div>
         <button onClick={avisar} disabled={busy} className="bg-red-600 text-white rounded-xl py-4 font-bold flex items-center justify-center gap-2 active:opacity-80 disabled:opacity-60">
-          <Flame size={20} />{busy ? 'Enviando…' : 'Avisar fornada'}
+          <Flame size={20} />{busy ? 'Enviando…' : `Avisar fornada de ${nomeCat}`}
         </button>
-        <FotoBtn img={img} onUrl={setImg} label="Foto da fornada (opcional)" />
-        {feed && <p className="text-xs text-stone-500">{ult ? `Último aviso de ${nomeCat}: ${tempo(ult.created_at)}` : `Você ainda não avisou nenhuma fornada de ${nomeCat}.`}</p>}
+        {feed && <p className="text-xs text-stone-500">{ult ? `Último aviso de ${nomeCat}: ${tempo(ult.created_at)}${ult.feed === false ? ' (só notificação)' : ''}` : `Você ainda não avisou nenhuma fornada de ${nomeCat}.`}</p>}
       </div>
 
       <div className="px-3 py-2 border-b border-stone-200">
@@ -146,9 +191,9 @@ function Painel({ p, reload }) {
       </div>
 
       <div className="pt-2">
-        {feed === null ? <Spinner />
-          : feed.length === 0 ? <Vazio t="Seu feed está vazio. Avise a primeira fornada ou faça uma publicação." />
-          : feed.map((it) => <Item key={it.tipo + it.id} it={it} p={p} apagar={apagar} />)}
+        {vis == null ? <Spinner />
+          : vis.length === 0 ? <Vazio t="Seu feed está vazio. Avise a primeira fornada ou faça uma publicação." />
+          : vis.map((it) => <Item key={it.tipo + it.id} it={it} p={p} apagar={apagar} />)}
       </div>
     </div>
   );
@@ -470,6 +515,11 @@ function Ajustes({ p, reload }) {
   const say = useToast();
   const [f, setF] = useState({ nome: p.nome, bio: p.bio, endereco: p.endereco, slug: p.slug, horarios: getHorarios(p) });
   const [com, setCom] = useState([]);
+  const [conf, setConf] = useState(false);
+  const [digitado, setDigitado] = useState('');
+  const [excl, setExcl] = useState(false);
+  const visivel = p.visivel !== false;
+  const [ps, setPs] = useState(pushStatus());
   const [busy, setBusy] = useState(false);
   const loadCom = useCallback(async () => {
     const { data } = await supabase.from('comentarios').select('*').eq('pani_id', p.id).order('created_at', { ascending: false });
@@ -487,6 +537,23 @@ function Ajustes({ p, reload }) {
     if (!f.nome.trim() || !slug) return say('Informe o nome e o link do cardápio.');
     setBusy(true); await patch({ nome: f.nome.trim(), bio: f.bio, endereco: f.endereco, slug, horarios: f.horarios }, 'Alterações salvas'); setBusy(false);
   };
+  const push = async () => {
+    try {
+      if (ps === 'ativo') { await desativarPush(); setPs('pendente'); say('Avisos desativados neste aparelho'); }
+      else { await ativarPush(); setPs('ativo'); say('Avisos ativados 🔔'); }
+    } catch (e) {
+      setPs(pushStatus());
+      say(e.message === 'ios-instalar' ? 'No iPhone, adicione o app à Tela de Início para receber avisos.'
+        : e.message === 'bloqueado' ? 'Permissão negada. Libere as notificações nas configurações do navegador.'
+        : 'Não foi possível alterar os avisos neste aparelho.');
+    }
+  };
+  const excluir = async () => {
+    setExcl(true);
+    const { error } = await supabase.rpc('delete_my_account');
+    if (error) { setExcl(false); return say('Não foi possível excluir a conta. Fale com o suporte.'); }
+    await signOut();
+  };
   const gps = () => {
     if (!navigator.geolocation) return say('Este aparelho não permite capturar a localização.');
     navigator.geolocation.getCurrentPosition(
@@ -497,6 +564,22 @@ function Ajustes({ p, reload }) {
   return (
     <div className="p-4 flex flex-col gap-3">
       <div className="flex items-center gap-4"><Av src={p.foto_url} emoji={p.emoji} size={72} /><FotoBtn img={null} onUrl={(u) => patch({ foto_url: u }, 'Foto atualizada')} /></div>
+      <div className="border border-stone-200 rounded-xl p-3 text-sm flex items-center gap-3">
+        {visivel ? <Eye size={18} className="text-red-600" /> : <EyeOff size={18} className="text-stone-400" />}
+        <div className="flex-1">
+          <b>Visível para os clientes</b>
+          <div className="text-xs text-stone-500">{visivel ? 'Aparece em Explorar e no feed, e envia avisos.' : 'Oculta do app e sem avisos. O link do cardápio continua funcionando.'}</div>
+        </div>
+        <Switch on={visivel} set={(v) => patch({ visivel: v }, v ? 'Sua pani está visível' : 'Sua pani está oculta')} label="Visível para os clientes" />
+      </div>
+      <div className="border border-stone-200 rounded-xl p-3 text-sm flex items-center gap-3">
+        <Bell size={18} className="text-red-600" />
+        <div className="flex-1">
+          <b>Avisos neste aparelho</b>
+          <div className="text-xs text-stone-500">{ps === 'ativo' ? 'Você recebe um aviso quando alguém seguir ou comentar na sua pani.' : ps === 'bloqueado' ? 'Bloqueados no navegador' : ps === 'ios-instalar' ? 'No iPhone, adicione à Tela de Início' : ps === 'sem-suporte' ? 'Sem suporte neste aparelho' : 'Ative para saber quando alguém seguir ou comentar.'}</div>
+        </div>
+        {(ps === 'ativo' || ps === 'pendente') && <Switch on={ps === 'ativo'} set={push} label="Avisos neste aparelho" />}
+      </div>
       <input className={inp} placeholder="Nome da pani" value={f.nome} onChange={(e) => setF({ ...f, nome: e.target.value })} />
       <textarea className={inp} rows={2} placeholder="Bio da pani" value={f.bio} onChange={(e) => setF({ ...f, bio: e.target.value })} />
       <input className={inp} placeholder="Endereço" value={f.endereco} onChange={(e) => setF({ ...f, endereco: e.target.value })} />
@@ -516,6 +599,16 @@ function Ajustes({ p, reload }) {
       {com.length === 0 && <Vazio t="Ainda não há comentários." />}
       {com.map((c) => <Coment key={c.id} c={c} nome={p.nome} reload={loadCom} />)}
       <button onClick={signOut} className={`${btn2} flex items-center justify-center gap-2 mt-2`}><LogOut size={16} />Sair</button>
+      {!conf
+        ? <button onClick={() => setConf(true)} className="text-red-600 text-sm font-semibold py-2">Excluir conta</button>
+        : <div className="border border-red-200 bg-red-50 rounded-xl p-3 text-sm flex flex-col gap-2">
+            <p>Isso apaga sua conta e os dados da pani. Não dá para desfazer.</p>
+            <input className={inp} placeholder={`Digite "${p.nome}" para confirmar`} value={digitado} onChange={(e) => setDigitado(e.target.value)} />
+            <div className="flex gap-2">
+              <button onClick={excluir} disabled={excl || key(digitado) !== key(p.nome)} className="flex-1 bg-red-600 text-white rounded-lg py-2 font-semibold disabled:opacity-40">{excl ? 'Excluindo…' : 'Excluir'}</button>
+              <button onClick={() => { setConf(false); setDigitado(''); }} className={`flex-1 ${btn2}`}>Cancelar</button>
+            </div>
+          </div>}
     </div>
   );
 }
