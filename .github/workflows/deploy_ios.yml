@@ -28,13 +28,13 @@ jobs:
       - name: Configurar Ruby e Fastlane
         uses: ruby/setup-ruby@v1
         with:
-          ruby-version: '3.0'
+          ruby-version: '3.3'
           bundler-cache: false
 
       - name: Instalar Fastlane globalmente
         run: sudo gem install fastlane -NV
 
-      - name: Criar Fastfile completo automaticamente
+      - name: Criar Fastfile otimizado automaticamente
         run: |
           mkdir -p ios/fastlane
           cat << 'EOF' > ios/fastlane/Fastfile
@@ -43,7 +43,7 @@ jobs:
           platform :ios do
             desc "Submeter build para o TestFlight"
             lane :release do
-              # Autenticação oficial via App Store Connect API com variáveis passadas do GitHub Actions
+              # Autenticação via App Store Connect API
               app_store_connect_api_key(
                 key_id: ENV["ASC_KEY_ID"],
                 issuer_id: ENV["ASC_ISSUER_ID"],
@@ -52,7 +52,14 @@ jobs:
                 in_house: false
               )
 
-              # Executa o build e o upload para o TestFlight
+              # Compila e envia diretamente ignorando perfis locais em falta
+              build_ios_app(
+                workspace: "App.xcworkspace",
+                scheme: "App",
+                export_method: "app-store",
+                skip_codesigning: false
+              )
+
               upload_to_testflight(
                 skip_waiting_for_build_processing: true
               )
@@ -70,7 +77,6 @@ jobs:
           KEY_FILE="$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8"
           printf '%s\n' "$ASC_PRIVATE_KEY" > "$KEY_FILE"
           
-          # Exporta o caminho do ficheiro para a variável de ambiente global do runner
           echo "ASC_KEY_FILEPATH=$KEY_FILE" >> $GITHUB_ENV
           
           cd ios
