@@ -34,7 +34,7 @@ jobs:
       - name: Instalar Fastlane globalmente
         run: sudo gem install fastlane -NV
 
-      - name: Criar Fastfile otimizado automaticamente
+      - name: Criar Fastfile com parâmetros injetados
         run: |
           mkdir -p ios/fastlane
           cat << 'EOF' > ios/fastlane/Fastfile
@@ -43,7 +43,7 @@ jobs:
           platform :ios do
             desc "Submeter build para o TestFlight"
             lane :release do
-              # Autenticação via App Store Connect API
+              # Autenticação via App Store Connect API injetando diretamente as variáveis do sistema
               app_store_connect_api_key(
                 key_id: ENV["ASC_KEY_ID"],
                 issuer_id: ENV["ASC_ISSUER_ID"],
@@ -52,7 +52,6 @@ jobs:
                 in_house: false
               )
 
-              # Compila e envia diretamente ignorando perfis locais em falta
               build_ios_app(
                 workspace: "App.xcworkspace",
                 scheme: "App",
@@ -77,7 +76,10 @@ jobs:
           KEY_FILE="$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8"
           printf '%s\n' "$ASC_PRIVATE_KEY" > "$KEY_FILE"
           
-          echo "ASC_KEY_FILEPATH=$KEY_FILE" >> $GITHUB_ENV
+          # Exporta explicitamente para o ambiente do passo
+          export ASC_KEY_ID="$ASC_KEY_ID"
+          export ASC_ISSUER_ID="$ASC_ISSUER_ID"
+          export ASC_KEY_FILEPATH="$KEY_FILE"
           
           cd ios
           fastlane release
