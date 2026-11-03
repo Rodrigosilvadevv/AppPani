@@ -31,9 +31,8 @@ jobs:
           ruby-version: '3.0'
           bundler-cache: false
 
-      - name: Instalar Fastlane globalmente (Alternativa sem Gemfile)
-        run: |
-          sudo gem install fastlane -NV
+      - name: Instalar Fastlane globalmente
+        run: sudo gem install fastlane -NV
 
       - name: Executar Build e Upload para TestFlight via Fastlane
         env:
@@ -42,7 +41,7 @@ jobs:
           ASC_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_API_PRIVATE_KEY }}
         run: |
           mkdir -p ~/.appstoreconnect/private_keys
-          echo "$ASC_PRIVATE_KEY" > ~/.appstoreconnect/private_keys/AuthKey_${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}.p8
+          KEY_FILE="$HOME/.appstoreconnect/private_keys/AuthKey_${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}.p8"
+          printf '%s\n' "$ASC_PRIVATE_KEY" > "$KEY_FILE"
           cd ios
-          # Executa o fastlane diretamente sem depender do Bundler/Gemfile local
           fastlane release
