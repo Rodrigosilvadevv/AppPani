@@ -22,6 +22,10 @@ jobs:
       - name: Instalar Dependências
         run: npm install
 
+      - name: Gerar plataforma iOS (Capacitor/Ionic)
+        run: npx cap add ios || npx cap sync ios
+        # Nota: Se for um projeto puramente nativo em React Native sem Capacitor, remova este passo e certifique-se de que enviou a pasta ios para o Git.
+
       - name: Configurar Ruby e Fastlane
         uses: ruby/setup-ruby@v1
         with:
