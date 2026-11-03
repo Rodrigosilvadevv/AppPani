@@ -17,25 +17,23 @@ jobs:
       - name: Configurar Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: '22'
 
       - name: Instalar Dependências
         run: npm install
 
       - name: Gerar plataforma iOS (Capacitor/Ionic)
         run: npx cap add ios || npx cap sync ios
-        # Nota: Se for um projeto puramente nativo em React Native sem Capacitor, remova este passo e certifique-se de que enviou a pasta ios para o Git.
 
       - name: Configurar Ruby e Fastlane
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: '3.0'
-          bundler-cache: true
+          bundler-cache: false
 
-      - name: Instalar Dependências do Fastlane
+      - name: Instalar Fastlane globalmente (Alternativa sem Gemfile)
         run: |
-          cd ios
-          bundle install
+          sudo gem install fastlane -NV
 
       - name: Executar Build e Upload para TestFlight via Fastlane
         env:
@@ -46,4 +44,5 @@ jobs:
           mkdir -p ~/.appstoreconnect/private_keys
           echo "$ASC_PRIVATE_KEY" > ~/.appstoreconnect/private_keys/AuthKey_${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}.p8
           cd ios
-          bundle exec fastlane release
+          # Executa o fastlane diretamente sem depender do Bundler/Gemfile local
+          fastlane release
