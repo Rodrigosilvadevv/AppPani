@@ -3,7 +3,7 @@ name: Deploy iOS to App Store Connect
 on:
   push:
     branches:
-      - release # ou main, dependendo da sua branch de produção
+      - main
 
 jobs:
   deploy:
@@ -14,7 +14,7 @@ jobs:
       - name: Checkout do Código
         uses: actions/checkout@v4
 
-      - name: Configurar Node.js (se aplicável)
+      - name: Configurar Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 18
@@ -22,16 +22,24 @@ jobs:
       - name: Instalar Dependências
         run: npm install
 
-      - name: Configurar Xcode
-        uses: maxim-lobanov/setup-xcode@v1
+      - name: Configurar Ruby e Fastlane
+        uses: ruby/setup-ruby@v1
         with:
-          xcode-version: '15.0' # Ajuste conforme a versão necessária
+          ruby-version: '3.0'
+          bundler-cache: true
 
-      - name: Executar Build e Upload para TestFlight
+      - name: Instalar Dependências do Fastlane
+        run: |
+          cd ios
+          bundle install
+
+      - name: Executar Build e Upload para TestFlight via Fastlane
         env:
           ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
           ASC_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_API_PRIVATE_KEY }}
         run: |
-          # Aqui entram os comandos de build do seu projeto (ex: xcodebuild ou eas build / fastlane)
-          echo "Iniciando compilação..."
+          mkdir -p ~/.appstoreconnect/private_keys
+          echo "$ASC_PRIVATE_KEY" > ~/.appstoreconnect/private_keys/AuthKey_${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}.p8
+          cd ios
+          bundle exec fastlane release
