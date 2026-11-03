@@ -55,14 +55,9 @@ jobs:
                 in_house: false
               )
 
-              # Utiliza o caminho absoluto ou relativo correto a partir da pasta ios
-              workspace_path = File.absolute_path("../ios/App/App.xcworkspace")
-              if !File.exist?(workspace_path)
-                workspace_path = File.absolute_path("App/App.xcworkspace")
-              end
-
+              # Caminho direto a partir da pasta ios
               build_ios_app(
-                workspace: workspace_path,
+                workspace: "App/App.xcworkspace",
                 scheme: "App",
                 export_method: "app-store",
                 skip_codesigning: false
