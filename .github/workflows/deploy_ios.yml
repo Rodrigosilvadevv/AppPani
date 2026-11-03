@@ -34,6 +34,24 @@ jobs:
       - name: Instalar Fastlane globalmente
         run: sudo gem install fastlane -NV
 
+      - name: Criar Fastfile básico automaticamente
+        run: |
+          mkdir -p ios/fastlane
+          cat << 'EOF' > ios/fastlane/Fastfile
+          default_platform(:ios)
+
+          platform :ios do
+            desc "Submeter build para o TestFlight"
+            lane :release do
+              # Compila e envia usando as chaves de API da Apple configuradas nas variáveis de ambiente
+              upload_to_testflight(
+                api_key_path: ENV["APP_STORE_CONNECT_API_KEY_PATH"],
+                skip_waiting_for_build_processing: true
+              )
+            end
+          end
+          EOF
+
       - name: Executar Build e Upload para TestFlight via Fastlane
         env:
           ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
@@ -41,7 +59,11 @@ jobs:
           ASC_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_API_PRIVATE_KEY }}
         run: |
           mkdir -p ~/.appstoreconnect/private_keys
-          KEY_FILE="$HOME/.appstoreconnect/private_keys/AuthKey_${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}.p8"
+          KEY_FILE="$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8"
           printf '%s\n' "$ASC_PRIVATE_KEY" > "$KEY_FILE"
+          
+          # Configura a variável de ambiente que o Fastlane procura para a chave de API
+          export APP_STORE_CONNECT_API_KEY_PATH="$KEY_FILE"
+          
           cd ios
           fastlane release
