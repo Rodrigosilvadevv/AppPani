@@ -3,7 +3,7 @@ name: Deploy iOS to App Store Connect
 on:
   push:
     branches:
-      - main # Ajuste para a sua branch de produção
+      - main
 
 jobs:
   deploy:
@@ -39,15 +39,7 @@ jobs:
           ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
           ASC_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_API_PRIVATE_KEY }}
         run: |
-          # Criação da chave privada temporária a partir do secret do GitHub
           mkdir -p ~/.appstoreconnect/private_keys
           echo "$ASC_PRIVATE_KEY" > ~/.appstoreconnect/private_keys/AuthKey_${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}.p8
-          
-          # Executa o comando do Fastlane para build e submissão
           cd ios
           bundle exec fastlane release
-*Verification:* O script executa a compilação no runner macOS e envia o pacote gerado diretamente para a App Store Connect.
-</Step>
-
-<Step subtitle="Passo 2" title="Guardar e enviar as alterações">
-Guarde o ficheiro no VS Code, abra o terminal e execute os comandos para enviar para o GitHub:
