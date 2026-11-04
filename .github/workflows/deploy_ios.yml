@@ -37,7 +37,7 @@ jobs:
       - name: Instalar Fastlane globalmente
         run: sudo gem install fastlane -NV
 
-      - name: Criar Fastfile definitivo automaticamente
+      - name: Criar Fastfile com detecção automática de workspace
         run: |
           mkdir -p ios/fastlane
           cat << 'EOF' > ios/fastlane/Fastfile
@@ -55,9 +55,14 @@ jobs:
                 in_house: false
               )
 
-              # Caminho direto a partir da pasta ios
+              # Procura automaticamente por qualquer ficheiro .xcworkspace na pasta ios
+              workspaces = Dir["*.xcworkspace"] + Dir["*/*.xcworkspace"]
+              workspace_file = workspaces.first
+
+              UI.message("Workspace encontrado: #{workspace_file}")
+
               build_ios_app(
-                workspace: "App/App.xcworkspace",
+                workspace: workspace_file,
                 scheme: "App",
                 export_method: "app-store",
                 skip_codesigning: false
