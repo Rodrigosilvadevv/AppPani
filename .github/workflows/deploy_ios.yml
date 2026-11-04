@@ -28,12 +28,17 @@ jobs:
       - name: Adicionar e Sincronizar Capacitor iOS
         run: npx cap add ios || npx cap sync ios
 
-      - name: Partilhar Esquemas do Xcode Automaticamente
+      - name: Localizar Workspace e Partilhar Esquemas Automaticamente
         run: |
           cd ios
+          # Procura o ficheiro xcworkspace real em qualquer subpasta
+          WS_PATH=$(find . -name "*.xcworkspace" -maxdepth 3 | head -n 1 | sed 's|^\./||')
+          echo "Workspace real encontrado: $WS_PATH"
+          echo "IOS_WORKSPACE=$WS_PATH" >> $GITHUB_ENV
+
+          # Prepara os esquemas para o Xcode
           PROJ_DIR=$(find . -name "*.xcodeproj" -maxdepth 2 | head -n 1)
           if [ -n "$PROJ_DIR" ]; then
-            echo "A configurar esquemas para: $PROJ_DIR"
             mkdir -p "$PROJ_DIR/xcshareddata/xcschemes"
             if [ -d "$PROJ_DIR/xcuserdata" ]; then
               cp -R "$PROJ_DIR/xcuserdata"/*/xcschemes/*.xcscheme "$PROJ_DIR/xcshareddata/xcschemes/" 2>/dev/null || true
@@ -50,7 +55,7 @@ jobs:
       - name: Instalar Fastlane globalmente
         run: sudo gem install fastlane -NV
 
-      - name: Criar Fastfile com caminho direto App.xcworkspace
+      - name: Criar Fastfile dinâmico com a variável do Workspace
         run: |
           mkdir -p ios/fastlane
           cat << 'EOF' > ios/fastlane/Fastfile
@@ -67,9 +72,9 @@ jobs:
                 in_house: false
               )
 
-              # Workspace localizado diretamente na raiz da pasta ios
+              # Utiliza o workspace detetado dinamicamente no runner
               build_ios_app(
-                workspace: "App.xcworkspace",
+                workspace: ENV["IOS_WORKSPACE"],
                 scheme: "App",
                 export_method: "app-store",
                 skip_codesigning: false
@@ -87,6 +92,7 @@ jobs:
           ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
           ASC_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_API_PRIVATE_KEY }}
+          IOS_WORKSPACE: ${{ env.IOS_WORKSPACE }}
         run: |
           mkdir -p ~/.appstoreconnect/private_keys
           KEY_FILE="$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8"
@@ -95,6 +101,7 @@ jobs:
           export ASC_KEY_ID="$ASC_KEY_ID"
           export ASC_ISSUER_ID="$ASC_ISSUER_ID"
           export ASC_KEY_FILEPATH="$KEY_FILE"
+          export IOS_WORKSPACE="$IOS_WORKSPACE"
           
           cd ios
           fastlane release
