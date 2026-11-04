@@ -28,14 +28,23 @@ jobs:
       - name: Adicionar e Sincronizar Capacitor iOS
         run: npx cap add ios || npx cap sync ios
 
-      - name: Partilhar Schemes do Xcode Automaticamente
+      - name: Tornar os Schemes do Xcode Partilhados (Shared)
         run: |
-          # Garante que os schemes do projeto Xcode fiquem visíveis e partilhados para o CI
-          SCHEME_DIR=$(find ios -name "xcschemes" -maxdepth 4 | head -n 1)
-          if [ -d "$SCHEME_DIR" ]; then
-            echo "A tornar os schemes partilhados em: $SCHEME_DIR"
-            chmod -R +w "$SCHEME_DIR"
+          # O Xcode guarda os schemes emxcuserdata por predefinição; movemos/tornamo-los partilhados em xcshareddata
+          XCREPROJ_PATH=$(find ios -name "*.xcodeproj" -maxdepth 3 | head -n 1)
+          if [ -d "$XCREPROJ_PATH" ]; then
+            echo "A configurar esquemas partilhados para: $XCREPROJ_PATH"
+            mkdir -p "$XCREPROJ_PATH/xcshareddata/xcschemes"
+            
+            # Se houver esquemas privados na pasta user-data, movemo-los para partilhados
+            if [ -d "$XCREPROJ_PATH/xcuserdata" ]; then
+              find "$XCREPROJ_PATH/xcuserdata" -name "*.xcscheme" -exec cp {} "$XCREPROJ_PATH/xcshareddata/xcschemes/" \;
+            fi
           fi
+          
+          # Garante também na pasta do Workspace se aplicável
+          XCWATCH_PATH=$(find ios -name "*.xcworkspace" -maxdepth 3 | head -n 1)
+          echo "Workspace verificado em: $XCWATCH_PATH"
 
       - name: Configurar Ruby e Fastlane
         uses: ruby/setup-ruby@v1
