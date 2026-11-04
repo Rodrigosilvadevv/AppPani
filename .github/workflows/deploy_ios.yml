@@ -28,6 +28,22 @@ jobs:
       - name: Adicionar e Sincronizar Capacitor iOS
         run: npx cap add ios || npx cap sync ios
 
+      - name: Partilhar Esquemas do Xcode Automaticamente
+        run: |
+          # Garante que o projeto .xcodeproj e o workspace existem e partilha os esquemas explicitamente
+          cd ios
+          PROJ_DIR=$(find . -name "*.xcodeproj" -maxdepth 2 | head -n 1)
+          if [ -n "$PROJ_DIR" ]; then
+            echo "A configurar esquemas para o projeto: $PROJ_DIR"
+            mkdir -p "$PROJ_DIR/xcshareddata/xcschemes"
+            
+            # Se existirem esquemas na pasta user-data local, move-os para partilhados
+            if [ -d "$PROJ_DIR/xcuserdata" ]; then
+              cp -R "$PROJ_DIR/xcuserdata"/*/xcschemes/*.xcscheme "$PROJ_DIR/xcshareddata/xcschemes/" 2>/dev/null || true
+            fi
+          fi
+          cd ..
+
       - name: Configurar Ruby e Fastlane
         uses: ruby/setup-ruby@v1
         with:
@@ -37,21 +53,16 @@ jobs:
       - name: Instalar Fastlane globalmente
         run: sudo gem install fastlane -NV
 
-      - name: Localizar Workspace e Detetar Scheme Automaticamente
+      - name: Localizar Workspace e Definir Variáveis
         run: |
           cd ios
-          FOUND_WS=$(find . -name "*.xcworkspace" -maxdepth 3 | head -n 1 | sed 's|^\./||')
+          FOUND_WS=$(find . -name "*.xcworkspace" -maxdepth 2 | head -n 1 | sed 's|^\./||')
           echo "IOS_WORKSPACE=$FOUND_WS" >> $GITHUB_ENV
-          echo "Workspace detetado: $FOUND_WS"
-
-          # Lista os schemes disponíveis no projeto e guarda o primeiro válido
-          SCHEME_NAME=$(xcodebuild -workspace "$FOUND_WS" -list | grep -A 10 "Schemes:" | tail -n +2 | head -n 1 | xargs)
-          if [ -z "$SCHEME_NAME" ]; then
-            SCHEME_NAME="App"
-          fi
-          echo "IOS_SCHEME=$SCHEME_NAME" >> $GITHUB_ENV
-          echo "Scheme detetado para build: $SCHEME_NAME"
+          echo "Workspace: $FOUND_WS"
           cd ..
+          
+          # Força o nome do esquema padrão do Capacitor
+          echo "IOS_SCHEME=App" >> $GITHUB_ENV
 
       - name: Criar Fastfile dinâmico
         run: |
@@ -70,7 +81,6 @@ jobs:
                 in_house: false
               )
 
-              # Usa o workspace e o scheme detetados dinamicamente
               build_ios_app(
                 workspace: ENV["IOS_WORKSPACE"],
                 scheme: ENV["IOS_SCHEME"],
