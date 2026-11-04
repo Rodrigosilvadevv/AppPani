@@ -35,135 +35,102 @@ jobs:
           echo "--- Estrutura da pasta ios ---"
           find ios -maxdepth 3 \( -name "*.xcworkspace" -o -name "*.xcodeproj" -o -name "Package.swift" -o -name "Podfile" \) -not -path "*/Pods/*"
 
-      - name: Localizar Workspace do Xcode
+      - name: Localizar Projeto e Scheme
         run: |
           cd ios
-          WS_PATH=$(find . -name "*.xcworkspace" -not -path "*/Pods/*" -not -path "*/.build/*" -maxdepth 3 | head -n 1 | sed 's|^\./||')
-          PROJ_PATH=$(find . -name "*.xcodeproj" -not -path "*/Pods/*" -maxdepth 3 | head -n 1 | sed 's|^\./||')
-          echo "IOS_WORKSPACE=$WS_PATH" >> $GITHUB_ENV
-          echo "IOS_PROJECT=$PROJ_PATH" >> $GITHUB_ENV
-          echo "Workspace: $WS_PATH | Project: $PROJ_PATH"
+          WS_PATH=$(find . -maxdepth 3 -name "*.xcworkspace" -not -path "*/Pods/*" -not -path "*/.build/*" -not -path "*/xcuserdata/*" | head -n 1 | sed 's|^\./||')
+          PROJ_PATH=$(find . -maxdepth 3 -name "*.xcodeproj" -not -path "*/Pods/*" | head -n 1 | sed 's|^\./||')
+          echo "Workspace: [$WS_PATH] | Project: [$PROJ_PATH]"
 
-      - name: Configurar Ruby e Fastlane
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: '3.3'
-          bundler-cache: false
-
-      - name: Instalar Fastlane
-        run: gem install fastlane -NV
-
-      - name: Criar Esquema Compartilhado do Xcode
-        run: |
-          cd ios
-          ruby -rxcodeproj -e '
-            project = Xcodeproj::Project.open(ENV["IOS_PROJECT"])
-            puts "Targets: #{project.targets.map(&:name).join(", ")}"
-            target = project.targets.find { |t| t.name == "App" } || project.native_targets.first
-            puts "Target usado: #{target.name}"
-            scheme = Xcodeproj::XCScheme.new
-            scheme.add_build_target(target)
-            scheme.set_launch_target(target)
-            scheme.save_as(project.path, target.name, true)
-          '
-          echo "--- Esquemas compartilhados ---"
-          find . -path "*xcshareddata/xcschemes/*.xcscheme" -not -path "*/Pods/*"
-
-      - name: Descobrir Scheme (diagnóstico)
-        run: |
-          cd ios
-          xcodebuild -version
-          if [ -n "$IOS_WORKSPACE" ]; then
-            LIST_ARGS="-workspace $IOS_WORKSPACE"
+          if [ -n "$WS_PATH" ]; then
+            BUILD_FLAG="-workspace"
+            BUILD_PATH="$WS_PATH"
           else
-            LIST_ARGS="-project $IOS_PROJECT"
+            BUILD_FLAG="-project"
+            BUILD_PATH="$PROJ_PATH"
           fi
-          echo "--- xcodebuild -list ---"
-          xcodebuild -list $LIST_ARGS || true
 
-          SCHEME=$(xcodebuild -list -json $LIST_ARGS 2>/dev/null | ruby -rjson -e '
+          xcodebuild -version
+          echo "--- xcodebuild -list ---"
+          xcodebuild -list $BUILD_FLAG "$BUILD_PATH"
+
+          SCHEME=$(xcodebuild -list -json $BUILD_FLAG "$BUILD_PATH" | ruby -rjson -e '
             j = JSON.parse(STDIN.read)
             s = (j["workspace"] || j["project"])["schemes"] || []
             puts(s.find { |x| x == "App" } || s.reject { |x| x =~ /Pods/ }.first)
-          ' || true)
+          ')
 
           echo "Scheme detectado: [$SCHEME]"
           if [ -z "$SCHEME" ]; then
-            echo "ERRO: nenhum scheme encontrado pelo xcodebuild."
+            echo "ERRO: nenhum scheme encontrado."
             exit 1
           fi
+
+          echo "BUILD_FLAG=$BUILD_FLAG" >> $GITHUB_ENV
+          echo "BUILD_PATH=$BUILD_PATH" >> $GITHUB_ENV
           echo "IOS_SCHEME=$SCHEME" >> $GITHUB_ENV
 
-      - name: Criar Fastfile
-        run: |
-          mkdir -p ios/fastlane
-          cat << 'EOF' > ios/fastlane/Fastfile
-          default_platform(:ios)
-
-          platform :ios do
-            desc "Enviar build para o TestFlight"
-            lane :release do
-              key_id    = ENV["ASC_KEY_ID"]
-              issuer_id = ENV["ASC_ISSUER_ID"]
-              key_path  = ENV["ASC_KEY_FILEPATH"]
-              team_id   = ENV["APPLE_TEAM_ID"]
-              build_num = ENV["GITHUB_RUN_NUMBER"] || "1"
-
-              app_store_connect_api_key(
-                key_id: key_id,
-                issuer_id: issuer_id,
-                key_filepath: key_path,
-                duration: 1200,
-                in_house: false
-              )
-
-              signing_args = "-allowProvisioningUpdates " \
-                "-authenticationKeyPath #{key_path} " \
-                "-authenticationKeyID #{key_id} " \
-                "-authenticationKeyIssuerID #{issuer_id}"
-
-              ws = ENV["IOS_WORKSPACE"].to_s
-              proj = ENV["IOS_PROJECT"].to_s
-
-              build_args = {
-                scheme: ENV["IOS_SCHEME"],
-                export_method: "app-store",
-                clean: true,
-                xcargs: "#{signing_args} DEVELOPMENT_TEAM=#{team_id} CODE_SIGN_STYLE=Automatic CURRENT_PROJECT_VERSION=#{build_num}",
-                export_xcargs: signing_args,
-                export_options: {
-                  method: "app-store",
-                  teamID: team_id,
-                  signingStyle: "automatic"
-                }
-              }
-              if ws.empty?
-                build_args[:project] = proj
-              else
-                build_args[:workspace] = ws
-              end
-
-              build_ios_app(build_args)
-
-              upload_to_testflight(
-                skip_waiting_for_build_processing: true
-              )
-            end
-          end
-          EOF
-
-      - name: Executar Fastlane
+      - name: Preparar Chave da App Store Connect
         env:
           ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
-          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
           ASC_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_API_PRIVATE_KEY }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           mkdir -p ~/.appstoreconnect/private_keys
           KEY_FILE="$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8"
           printf '%s\n' "$ASC_PRIVATE_KEY" > "$KEY_FILE"
+          echo "ASC_KEY_FILE=$KEY_FILE" >> $GITHUB_ENV
 
-          export ASC_KEY_FILEPATH="$KEY_FILE"
-
+      - name: Gerar Archive
+        env:
+          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
           cd ios
-          fastlane release
+          xcodebuild archive \
+            $BUILD_FLAG "$BUILD_PATH" \
+            -scheme "$IOS_SCHEME" \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_KEY_FILE" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
+            CODE_SIGN_STYLE=Automatic \
+            CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER"
+
+      - name: Exportar e Enviar para o TestFlight
+        env:
+          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>app-store-connect</string>
+            <key>destination</key>
+            <string>upload</string>
+            <key>teamID</key>
+            <string>${APPLE_TEAM_ID}</string>
+            <key>signingStyle</key>
+            <string>automatic</string>
+            <key>uploadSymbols</key>
+            <true/>
+          </dict>
+          </plist>
+          EOF
+
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            -exportPath "$RUNNER_TEMP/export" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_KEY_FILE" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
