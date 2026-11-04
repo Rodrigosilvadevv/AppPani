@@ -25,8 +25,8 @@ jobs:
       - name: Compilar Aplicação Web (Ionic/Vite/React)
         run: npm run build --if-present
 
-      - name: Sincronizar Capacitor iOS
-        run: npx cap sync ios
+      - name: Adicionar e Sincronizar Capacitor iOS
+        run: npx cap add ios || npx cap sync ios
 
       - name: Configurar Ruby e Fastlane
         uses: ruby/setup-ruby@v1
@@ -37,7 +37,7 @@ jobs:
       - name: Instalar Fastlane globalmente
         run: sudo gem install fastlane -NV
 
-      - name: Criar Fastfile com detecção automática de workspace
+      - name: Criar Fastfile definitivo automaticamente
         run: |
           mkdir -p ios/fastlane
           cat << 'EOF' > ios/fastlane/Fastfile
@@ -55,14 +55,9 @@ jobs:
                 in_house: false
               )
 
-              # Procura automaticamente por qualquer ficheiro .xcworkspace na pasta ios
-              workspaces = Dir["*.xcworkspace"] + Dir["*/*.xcworkspace"]
-              workspace_file = workspaces.first
-
-              UI.message("Workspace encontrado: #{workspace_file}")
-
+              # Caminho direto e definitivo do workspace gerado pelo Capacitor
               build_ios_app(
-                workspace: workspace_file,
+                workspace: "App/App.xcworkspace",
                 scheme: "App",
                 export_method: "app-store",
                 skip_codesigning: false
