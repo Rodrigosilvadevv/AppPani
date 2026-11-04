@@ -28,22 +28,48 @@ jobs:
       - name: Adicionar e Sincronizar Capacitor iOS
         run: npx cap add ios || npx cap sync ios
 
-      - name: Partilhar Esquemas do Xcode Automaticamente
+      - name: Forçar Criação do Esquema Partilhado para o Xcode
         run: |
           cd ios
-          # Localiza o workspace e define a variável de ambiente
           WS_PATH=$(find . -name "*.xcworkspace" -maxdepth 3 | head -n 1 | sed 's|^\./||')
           echo "IOS_WORKSPACE=$WS_PATH" >> $GITHUB_ENV
-          echo "Workspace detetado: $WS_PATH"
-
-          # Torna o esquema visível criando a pasta xcshareddata e copiando o esquema do utilizador
+          
+          # Garante de forma absoluta a existência da pasta de esquemas partilhados do Xcode
           PROJ_DIR=$(find . -name "*.xcodeproj" -maxdepth 2 | head -n 1)
           if [ -n "$PROJ_DIR" ]; then
             mkdir -p "$PROJ_DIR/xcshareddata/xcschemes"
-            if [ -d "$PROJ_DIR/xcuserdata" ]; then
-              cp -R "$PROJ_DIR/xcuserdata"/*/xcschemes/*.xcscheme "$PROJ_DIR/xcshareddata/xcschemes/" 2>/dev/null || true
+            
+            # Se o scheme padrão ainda não existir na pasta partilhada, criamos um apontador básico para o target App
+            if [ ! -f "$PROJ_DIR/xcshareddata/xcschemes/App.xcscheme" ]; then
+              cat << 'EOF' > "$PROJ_DIR/xcshareddata/xcschemes/App.xcscheme"
+<?xml version="1.0" encoding="UTF-8"?>
+<Scheme LastUpgradeVersion="1420" version="1.3">
+   <BuildAction parallelizeBuildables="YES" buildImplicitDependencies="YES">
+      <BuildActionEntries>
+         <BuildActionEntry buildForTesting="YES" buildForRunning="YES" buildForProfiling="YES" buildForArchiving="YES" buildForAnalyzing="YES">
+            <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="1E77F38F21F651600003FE46" BuildableName="App.app" BlueprintName="App" ReferencedContainer="container:App.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
+      </BuildActionEntries>
+   </BuildAction>
+   <LaunchAction buildConfiguration="Debug" selectedDebuggerIdentifier="Xcode.DebuggerFoundation.Debugger.LLDB" selectedLauncherIdentifier="Xcode.DebuggerFoundation.Launcher.LLDB" launchStyle="0" useCustomWorkingDirectory="NO" ignoresPersistentStateOnLaunch="NO" debugDocumentVersioning="YES" debugServiceExtension="internal" allowLocationSimulation="YES">
+      <BuildableProductRunnable runnableDebuggingMode="0">
+         <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="1E77F38F21F651600003FE46" BuildableName="App.app" BlueprintName="App" ReferencedContainer="container:App.xcodeproj">
+         </BuildableReference>
+      </BuildableProductRunnable>
+   </LaunchAction>
+   <ProfileAction buildConfiguration="Release" shouldUseLaunchSchemeArgsEnv="YES" savedToolIdentifier="" useCustomWorkingDirectory="NO" debugDocumentVersioning="YES">
+      <BuildableProductRunnable runnableDebuggingMode="0">
+         <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="1E77F38F21F651600003FE46" BuildableName="App.app" BlueprintName="App" ReferencedContainer="container:App.xcodeproj">
+         </BuildableReference>
+      </BuildableProductRunnable>
+   </ProfileAction>
+   <AnalyzeAction buildConfiguration="Debug"></AnalyzeAction>
+   <ArchiveAction buildConfiguration="Release" revealArchiveInOutputStream="YES"></ArchiveAction>
+</Scheme>
+EOF
+              echo "Esquema App.xcscheme gerado e partilhado com sucesso!"
             fi
-            echo "Esquemas partilhados configurados com sucesso em xcshareddata!"
           fi
           cd ..
 
