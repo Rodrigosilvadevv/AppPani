@@ -32,11 +32,13 @@ jobs:
             npx cap add ios
           fi
           npx cap sync ios
+          echo "--- Estrutura da pasta ios ---"
+          find ios -maxdepth 3 \( -name "*.xcworkspace" -o -name "*.xcodeproj" -o -name "Package.swift" -o -name "Podfile" \) -not -path "*/Pods/*"
 
       - name: Localizar Workspace do Xcode
         run: |
           cd ios
-          WS_PATH=$(find . -name "*.xcworkspace" -not -path "*/Pods/*" -maxdepth 3 | head -n 1 | sed 's|^\./||')
+          WS_PATH=$(find . -name "*.xcworkspace" -not -path "*/Pods/*" -not -path "*/.build/*" -maxdepth 3 | head -n 1 | sed 's|^\./||')
           PROJ_PATH=$(find . -name "*.xcodeproj" -not -path "*/Pods/*" -maxdepth 3 | head -n 1 | sed 's|^\./||')
           echo "IOS_WORKSPACE=$WS_PATH" >> $GITHUB_ENV
           echo "IOS_PROJECT=$PROJ_PATH" >> $GITHUB_ENV
@@ -56,15 +58,41 @@ jobs:
           cd ios
           ruby -rxcodeproj -e '
             project = Xcodeproj::Project.open(ENV["IOS_PROJECT"])
+            puts "Targets: #{project.targets.map(&:name).join(", ")}"
             target = project.targets.find { |t| t.name == "App" } || project.native_targets.first
             puts "Target usado: #{target.name}"
             scheme = Xcodeproj::XCScheme.new
             scheme.add_build_target(target)
             scheme.set_launch_target(target)
-            scheme.save_as(project.path, "App", true)
+            scheme.save_as(project.path, target.name, true)
           '
           echo "--- Esquemas compartilhados ---"
           find . -path "*xcshareddata/xcschemes/*.xcscheme" -not -path "*/Pods/*"
+
+      - name: Descobrir Scheme (diagnóstico)
+        run: |
+          cd ios
+          xcodebuild -version
+          if [ -n "$IOS_WORKSPACE" ]; then
+            LIST_ARGS="-workspace $IOS_WORKSPACE"
+          else
+            LIST_ARGS="-project $IOS_PROJECT"
+          fi
+          echo "--- xcodebuild -list ---"
+          xcodebuild -list $LIST_ARGS || true
+
+          SCHEME=$(xcodebuild -list -json $LIST_ARGS 2>/dev/null | ruby -rjson -e '
+            j = JSON.parse(STDIN.read)
+            s = (j["workspace"] || j["project"])["schemes"] || []
+            puts(s.find { |x| x == "App" } || s.reject { |x| x =~ /Pods/ }.first)
+          ' || true)
+
+          echo "Scheme detectado: [$SCHEME]"
+          if [ -z "$SCHEME" ]; then
+            echo "ERRO: nenhum scheme encontrado pelo xcodebuild."
+            exit 1
+          fi
+          echo "IOS_SCHEME=$SCHEME" >> $GITHUB_ENV
 
       - name: Criar Fastfile
         run: |
@@ -98,7 +126,7 @@ jobs:
               proj = ENV["IOS_PROJECT"].to_s
 
               build_args = {
-                scheme: "App",
+                scheme: ENV["IOS_SCHEME"],
                 export_method: "app-store",
                 clean: true,
                 xcargs: "#{signing_args} DEVELOPMENT_TEAM=#{team_id} CODE_SIGN_STYLE=Automatic CURRENT_PROJECT_VERSION=#{build_num}",
