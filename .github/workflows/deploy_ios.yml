@@ -28,12 +28,23 @@ jobs:
       - name: Adicionar e Sincronizar Capacitor iOS
         run: npx cap add ios || npx cap sync ios
 
-      - name: Detetar Workspace do Xcode Automaticamente
+      - name: Partilhar Esquemas do Xcode Automaticamente
         run: |
           cd ios
+          # Localiza o workspace e define a variável de ambiente
           WS_PATH=$(find . -name "*.xcworkspace" -maxdepth 3 | head -n 1 | sed 's|^\./||')
           echo "IOS_WORKSPACE=$WS_PATH" >> $GITHUB_ENV
           echo "Workspace detetado: $WS_PATH"
+
+          # Torna o esquema visível criando a pasta xcshareddata e copiando o esquema do utilizador
+          PROJ_DIR=$(find . -name "*.xcodeproj" -maxdepth 2 | head -n 1)
+          if [ -n "$PROJ_DIR" ]; then
+            mkdir -p "$PROJ_DIR/xcshareddata/xcschemes"
+            if [ -d "$PROJ_DIR/xcuserdata" ]; then
+              cp -R "$PROJ_DIR/xcuserdata"/*/xcschemes/*.xcscheme "$PROJ_DIR/xcshareddata/xcschemes/" 2>/dev/null || true
+            fi
+            echo "Esquemas partilhados configurados com sucesso em xcshareddata!"
+          fi
           cd ..
 
       - name: Configurar Ruby e Fastlane
