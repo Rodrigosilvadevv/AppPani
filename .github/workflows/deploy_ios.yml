@@ -41,7 +41,47 @@ jobs:
             
             # Se o scheme padrão ainda não existir na pasta partilhada, criamos um apontador básico para o target App
             if [ ! -f "$PROJ_DIR/xcshareddata/xcschemes/App.xcscheme" ]; then
-              cat << 'EOF' > "$PROJ_DIR/xcshareddata/xcschemes/App.xcscheme"
+             name: Deploy iOS to App Store Connect
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    name: Compilar e Enviar para TestFlight / App Store
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout do Código
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Instalar Dependências
+        run: npm install
+
+      - name: Compilar Aplicação Web (Ionic/Vite/React)
+        run: npm run build --if-present
+
+      - name: Adicionar e Sincronizar Capacitor iOS
+        run: npx cap add ios || npx cap sync ios
+
+      - name: Forçar Criação do Esquema Partilhado
+        run: |
+          cd ios
+          WS_PATH=$(find . -name "*.xcworkspace" -maxdepth 3 | head -n 1 | sed 's|^\./||')
+          echo "IOS_WORKSPACE=$WS_PATH" >> $GITHUB_ENV
+          
+          PROJ_DIR=$(find . -name "*.xcodeproj" -maxdepth 2 | head -n 1)
+          if [ -n "$PROJ_DIR" ]; then
+            mkdir -p "$PROJ_DIR/xcshareddata/xcschemes"
+            
+            cat << 'EOF' > "$PROJ_DIR/xcshareddata/xcschemes/App.xcscheme"
 <?xml version="1.0" encoding="UTF-8"?>
 <Scheme LastUpgradeVersion="1420" version="1.3">
    <BuildAction parallelizeBuildables="YES" buildImplicitDependencies="YES">
@@ -68,8 +108,7 @@ jobs:
    <ArchiveAction buildConfiguration="Release" revealArchiveInOutputStream="YES"></ArchiveAction>
 </Scheme>
 EOF
-              echo "Esquema App.xcscheme gerado e partilhado com sucesso!"
-            fi
+            echo "Esquema App.xcscheme criado com sucesso!"
           fi
           cd ..
 
