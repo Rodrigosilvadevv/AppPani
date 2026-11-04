@@ -28,23 +28,100 @@ jobs:
       - name: Adicionar e Sincronizar Capacitor iOS
         run: npx cap add ios || npx cap sync ios
 
-      - name: Tornar os Schemes do Xcode Partilhados (Shared)
+      - name: Garantir Scheme Partilhado (Shared) para o Xcode
         run: |
-          # O Xcode guarda os schemes emxcuserdata por predefinição; movemos/tornamo-los partilhados em xcshareddata
-          XCREPROJ_PATH=$(find ios -name "*.xcodeproj" -maxdepth 3 | head -n 1)
-          if [ -d "$XCREPROJ_PATH" ]; then
-            echo "A configurar esquemas partilhados para: $XCREPROJ_PATH"
-            mkdir -p "$XCREPROJ_PATH/xcshareddata/xcschemes"
+          # Define o caminho para a pasta xcshareddata do projeto Xcode do Capacitor
+          XCODE_PROJ=$(find ios -name "*.xcodeproj" -maxdepth 3 | head -n 1)
+          if [ -n "$XCODE_PROJ" ]; then
+            echo "Projeto Xcode encontrado em: $XCODE_PROJ"
+            mkdir -p "$XCODE_PROJ/xcshareddata/xcschemes"
             
-            # Se houver esquemas privados na pasta user-data, movemo-los para partilhados
-            if [ -d "$XCREPROJ_PATH/xcuserdata" ]; then
-              find "$XCREPROJ_PATH/xcuserdata" -name "*.xcscheme" -exec cp {} "$XCREPROJ_PATH/xcshareddata/xcschemes/" \;
-            fi
+            # Cria o ficheiro de scheme partilhado 'App.xcscheme' caso não exista
+            cat << 'EOF' > "$XCODE_PROJ/xcshareddata/xcschemes/App.xcscheme"
+<?xml version="1.0" encoding="UTF-8"?>
+<Scheme
+   LastUpgradeVersion = "1420"
+   version = "1.3">
+   <BuildAction
+      parallelizeBuildables = "YES"
+      buildImplicitDependencies = "YES">
+      <BuildActionEntries>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "YES"
+            buildForProfiling = "YES"
+            buildForArchiving = "YES"
+            buildForAnalyzing = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "1E77F38F21F651600003FE46"
+               BuildableName = "App.app"
+               BlueprintName = "App"
+               ReferencedContainer = "container:App.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
+      </BuildActionEntries>
+   </BuildAction>
+   <TestAction
+      buildConfiguration = "Debug"
+      selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
+      selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
+      shouldUseLaunchSchemeArgsEnv = "YES">
+      <Testables>
+      </Testables>
+   </TestAction>
+   <LaunchAction
+      buildConfiguration = "Debug"
+      selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
+      selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
+      launchStyle = "0"
+      useCustomWorkingDirectory = "NO"
+      ignoresPersistentStateOnLaunch = "NO"
+      debugDocumentVersioning = "YES"
+      debugServiceExtension = "internal"
+      allowLocationSimulation = "YES">
+      <BuildableProductRunnable
+         runnableDebuggingMode = "0">
+         <BuildableReference
+            BuildableIdentifier = "primary"
+            BlueprintIdentifier = "1E77F38F21F651600003FE46"
+            BuildableName = "App.app"
+            BlueprintName = "App"
+            ReferencedContainer = "container:App.xcodeproj">
+         </BuildableReference>
+      </BuildableProductRunnable>
+   </LaunchAction>
+   <ProfileAction
+      buildConfiguration = "Release"
+      shouldUseLaunchSchemeArgsEnv = "YES"
+      savedToolIdentifier = ""
+      useCustomWorkingDirectory = "NO"
+      debugDocumentVersioning = "YES">
+      <BuildableProductRunnable
+         runnableDebuggingMode = "0">
+         <BuildableReference
+            BuildableIdentifier = "primary"
+            BlueprintIdentifier = "1E77F38F21F651600003FE46"
+            BuildableName = "App.app"
+            BlueprintName = "App"
+            ReferencedContainer = "container:App.xcodeproj">
+         </BuildableReference>
+      </BuildableProductRunnable>
+   </ProfileAction>
+   <AnalyzeAction
+      buildConfiguration = "Debug">
+   </AnalyzeAction>
+   <ArchiveAction
+      buildConfiguration = "Release"
+      revealArchiveInOutputStream = "YES">
+   </ArchiveAction>
+</Scheme>
+EOF
+            echo "Scheme 'App.xcscheme' criado e partilhado com sucesso em xcshareddata!"
+          else
+            echo "Erro: Projeto .xcodeproj não encontrado!"
+            exit 1
           fi
-          
-          # Garante também na pasta do Workspace se aplicável
-          XCWATCH_PATH=$(find ios -name "*.xcworkspace" -maxdepth 3 | head -n 1)
-          echo "Workspace verificado em: $XCWATCH_PATH"
 
       - name: Configurar Ruby e Fastlane
         uses: ruby/setup-ruby@v1
