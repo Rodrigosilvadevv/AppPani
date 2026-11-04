@@ -30,12 +30,13 @@ jobs:
 
       - name: Partilhar Esquemas do Xcode Automaticamente
         run: |
-          # Assegura que a pasta xcshareddata existe para o scheme ser lido sem erros
           cd ios
-          if [ -d "App.xcodeproj" ]; then
-            mkdir -p "App.xcodeproj/xcshareddata/xcschemes"
-            if [ -d "App.xcodeproj/xcuserdata" ]; then
-              cp -R "App.xcodeproj/xcuserdata"/*/xcschemes/*.xcscheme "App.xcodeproj/xcshareddata/xcschemes/" 2>/dev/null || true
+          PROJ_DIR=$(find . -name "*.xcodeproj" -maxdepth 2 | head -n 1)
+          if [ -n "$PROJ_DIR" ]; then
+            echo "A configurar esquemas para: $PROJ_DIR"
+            mkdir -p "$PROJ_DIR/xcshareddata/xcschemes"
+            if [ -d "$PROJ_DIR/xcuserdata" ]; then
+              cp -R "$PROJ_DIR/xcuserdata"/*/xcschemes/*.xcscheme "$PROJ_DIR/xcshareddata/xcschemes/" 2>/dev/null || true
             fi
           fi
           cd ..
@@ -49,7 +50,7 @@ jobs:
       - name: Instalar Fastlane globalmente
         run: sudo gem install fastlane -NV
 
-      - name: Criar Fastfile com caminhos diretos do Capacitor
+      - name: Criar Fastfile com caminho direto App.xcworkspace
         run: |
           mkdir -p ios/fastlane
           cat << 'EOF' > ios/fastlane/Fastfile
@@ -66,9 +67,9 @@ jobs:
                 in_house: false
               )
 
-              # Caminho estático padrão do Capacitor para workspace e scheme
+              # Workspace localizado diretamente na raiz da pasta ios
               build_ios_app(
-                workspace: "App/App.xcworkspace",
+                workspace: "App.xcworkspace",
                 scheme: "App",
                 export_method: "app-store",
                 skip_codesigning: false
