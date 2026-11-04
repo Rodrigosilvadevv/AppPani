@@ -80,6 +80,11 @@ jobs:
           printf '%s\n' "$ASC_PRIVATE_KEY" > "$KEY_FILE"
           echo "ASC_KEY_FILE=$KEY_FILE" >> $GITHUB_ENV
 
+      - name: Declarar criptografia isenta
+        run: |
+          /usr/libexec/PlistBuddy -c "Add :ITSAppUsesNonExemptEncryption bool false" ios/App/App/Info.plist || /usr/libexec/PlistBuddy -c "Set :ITSAppUsesNonExemptEncryption false" ios/App/App/Info.plist
+          grep -A1 ITSAppUsesNonExemptEncryption ios/App/App/Info.plist
+
       - name: Gerar Archive
         env:
           ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
@@ -87,6 +92,10 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           cd ios
+          if [ -z "$APPLE_TEAM_ID" ]; then
+            echo "ERRO: secret APPLE_TEAM_ID não configurado."
+            exit 1
+          fi
           xcodebuild archive \
             $BUILD_FLAG "$BUILD_PATH" \
             -scheme "$IOS_SCHEME" \
