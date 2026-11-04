@@ -24,7 +24,15 @@ jobs:
         run: npm install
 
       - name: Compilar Aplicação Web
-        run: npm run build --if-present
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        run: |
+          if [ -z "$VITE_SUPABASE_URL" ] || [ -z "$VITE_SUPABASE_ANON_KEY" ]; then
+            echo "ERRO: secrets VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY não configurados."
+            exit 1
+          fi
+          npm run build --if-present
 
       - name: Adicionar e Sincronizar Capacitor iOS
         run: |
