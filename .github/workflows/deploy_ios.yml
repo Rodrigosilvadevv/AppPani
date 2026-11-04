@@ -37,7 +37,15 @@ jobs:
       - name: Instalar Fastlane globalmente
         run: sudo gem install fastlane -NV
 
-      - name: Criar Fastfile definitivo automaticamente
+      - name: Localizar Workspace do Xcode Automaticamente
+        run: |
+          FOUND_PATH=$(find ios -name "*.xcworkspace" -maxdepth 3 | head -n 1)
+          echo "Caminho encontrado: $FOUND_PATH"
+          REL_PATH=${FOUND_PATH#ios/}
+          echo "IOS_WORKSPACE=$REL_PATH" >> $GITHUB_ENV
+          echo "Workspace relativo definido para: $REL_PATH"
+
+      - name: Criar Fastfile dinâmico
         run: |
           mkdir -p ios/fastlane
           cat << 'EOF' > ios/fastlane/Fastfile
@@ -46,7 +54,6 @@ jobs:
           platform :ios do
             desc "Submeter build para o TestFlight"
             lane :release do
-              # Autenticação via App Store Connect API
               app_store_connect_api_key(
                 key_id: ENV["ASC_KEY_ID"],
                 issuer_id: ENV["ASC_ISSUER_ID"],
@@ -55,9 +62,8 @@ jobs:
                 in_house: false
               )
 
-              # Caminho direto e definitivo do workspace gerado pelo Capacitor
               build_ios_app(
-                workspace: "App/App.xcworkspace",
+                workspace: ENV["IOS_WORKSPACE"],
                 scheme: "App",
                 export_method: "app-store",
                 skip_codesigning: false
@@ -75,6 +81,7 @@ jobs:
           ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
           ASC_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_API_PRIVATE_KEY }}
+          IOS_WORKSPACE: ${{ env.IOS_WORKSPACE }}
         run: |
           mkdir -p ~/.appstoreconnect/private_keys
           KEY_FILE="$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8"
@@ -83,6 +90,7 @@ jobs:
           export ASC_KEY_ID="$ASC_KEY_ID"
           export ASC_ISSUER_ID="$ASC_ISSUER_ID"
           export ASC_KEY_FILEPATH="$KEY_FILE"
+          export IOS_WORKSPACE="$IOS_WORKSPACE"
           
           cd ios
           fastlane release
