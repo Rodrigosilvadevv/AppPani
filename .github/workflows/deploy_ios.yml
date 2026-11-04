@@ -51,6 +51,21 @@ jobs:
       - name: Instalar Fastlane
         run: gem install fastlane -NV
 
+      - name: Criar Esquema Compartilhado do Xcode
+        run: |
+          cd ios
+          ruby -rxcodeproj -e '
+            project = Xcodeproj::Project.open(ENV["IOS_PROJECT"])
+            target = project.targets.find { |t| t.name == "App" } || project.native_targets.first
+            puts "Target usado: #{target.name}"
+            scheme = Xcodeproj::XCScheme.new
+            scheme.add_build_target(target)
+            scheme.set_launch_target(target)
+            scheme.save_as(project.path, "App", true)
+          '
+          echo "--- Esquemas compartilhados ---"
+          find . -path "*xcshareddata/xcschemes/*.xcscheme" -not -path "*/Pods/*"
+
       - name: Criar Fastfile
         run: |
           mkdir -p ios/fastlane
