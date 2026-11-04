@@ -30,16 +30,12 @@ jobs:
 
       - name: Partilhar Esquemas do Xcode Automaticamente
         run: |
-          # Garante que o projeto .xcodeproj e o workspace existem e partilha os esquemas explicitamente
+          # Assegura que a pasta xcshareddata existe para o scheme ser lido sem erros
           cd ios
-          PROJ_DIR=$(find . -name "*.xcodeproj" -maxdepth 2 | head -n 1)
-          if [ -n "$PROJ_DIR" ]; then
-            echo "A configurar esquemas para o projeto: $PROJ_DIR"
-            mkdir -p "$PROJ_DIR/xcshareddata/xcschemes"
-            
-            # Se existirem esquemas na pasta user-data local, move-os para partilhados
-            if [ -d "$PROJ_DIR/xcuserdata" ]; then
-              cp -R "$PROJ_DIR/xcuserdata"/*/xcschemes/*.xcscheme "$PROJ_DIR/xcshareddata/xcschemes/" 2>/dev/null || true
+          if [ -d "App.xcodeproj" ]; then
+            mkdir -p "App.xcodeproj/xcshareddata/xcschemes"
+            if [ -d "App.xcodeproj/xcuserdata" ]; then
+              cp -R "App.xcodeproj/xcuserdata"/*/xcschemes/*.xcscheme "App.xcodeproj/xcshareddata/xcschemes/" 2>/dev/null || true
             fi
           fi
           cd ..
@@ -53,18 +49,7 @@ jobs:
       - name: Instalar Fastlane globalmente
         run: sudo gem install fastlane -NV
 
-      - name: Localizar Workspace e Definir Variáveis
-        run: |
-          cd ios
-          FOUND_WS=$(find . -name "*.xcworkspace" -maxdepth 2 | head -n 1 | sed 's|^\./||')
-          echo "IOS_WORKSPACE=$FOUND_WS" >> $GITHUB_ENV
-          echo "Workspace: $FOUND_WS"
-          cd ..
-          
-          # Força o nome do esquema padrão do Capacitor
-          echo "IOS_SCHEME=App" >> $GITHUB_ENV
-
-      - name: Criar Fastfile dinâmico
+      - name: Criar Fastfile com caminhos diretos do Capacitor
         run: |
           mkdir -p ios/fastlane
           cat << 'EOF' > ios/fastlane/Fastfile
@@ -81,9 +66,10 @@ jobs:
                 in_house: false
               )
 
+              # Caminho estático padrão do Capacitor para workspace e scheme
               build_ios_app(
-                workspace: ENV["IOS_WORKSPACE"],
-                scheme: ENV["IOS_SCHEME"],
+                workspace: "App/App.xcworkspace",
+                scheme: "App",
                 export_method: "app-store",
                 skip_codesigning: false
               )
@@ -100,8 +86,6 @@ jobs:
           ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
           ASC_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_API_PRIVATE_KEY }}
-          IOS_WORKSPACE: ${{ env.IOS_WORKSPACE }}
-          IOS_SCHEME: ${{ env.IOS_SCHEME }}
         run: |
           mkdir -p ~/.appstoreconnect/private_keys
           KEY_FILE="$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8"
@@ -110,8 +94,6 @@ jobs:
           export ASC_KEY_ID="$ASC_KEY_ID"
           export ASC_ISSUER_ID="$ASC_ISSUER_ID"
           export ASC_KEY_FILEPATH="$KEY_FILE"
-          export IOS_WORKSPACE="$IOS_WORKSPACE"
-          export IOS_SCHEME="$IOS_SCHEME"
           
           cd ios
           fastlane release
