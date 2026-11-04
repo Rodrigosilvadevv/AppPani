@@ -4,10 +4,11 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 jobs:
   deploy:
-    name: Compilar e Enviar para TestFlight / App Store
+    name: Compilar e Enviar para TestFlight
     runs-on: macos-latest
 
     steps:
@@ -22,95 +23,24 @@ jobs:
       - name: Instalar Dependências
         run: npm install
 
-      - name: Compilar Aplicação Web (Ionic/Vite/React)
+      - name: Compilar Aplicação Web
         run: npm run build --if-present
 
       - name: Adicionar e Sincronizar Capacitor iOS
-        run: npx cap add ios || npx cap sync ios
-
-      - name: Forçar Criação do Esquema Partilhado para o Xcode
         run: |
-          cd ios
-          WS_PATH=$(find . -name "*.xcworkspace" -maxdepth 3 | head -n 1 | sed 's|^\./||')
-          echo "IOS_WORKSPACE=$WS_PATH" >> $GITHUB_ENV
-          
-          # Garante de forma absoluta a existência da pasta de esquemas partilhados do Xcode
-          PROJ_DIR=$(find . -name "*.xcodeproj" -maxdepth 2 | head -n 1)
-          if [ -n "$PROJ_DIR" ]; then
-            mkdir -p "$PROJ_DIR/xcshareddata/xcschemes"
-            
-            # Se o scheme padrão ainda não existir na pasta partilhada, criamos um apontador básico para o target App
-            if [ ! -f "$PROJ_DIR/xcshareddata/xcschemes/App.xcscheme" ]; then
-             name: Deploy iOS to App Store Connect
-
-on:
-  push:
-    branches:
-      - main
-
-jobs:
-  deploy:
-    name: Compilar e Enviar para TestFlight / App Store
-    runs-on: macos-latest
-
-    steps:
-      - name: Checkout do Código
-        uses: actions/checkout@v4
-
-      - name: Configurar Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-
-      - name: Instalar Dependências
-        run: npm install
-
-      - name: Compilar Aplicação Web (Ionic/Vite/React)
-        run: npm run build --if-present
-
-      - name: Adicionar e Sincronizar Capacitor iOS
-        run: npx cap add ios || npx cap sync ios
-
-      - name: Forçar Criação do Esquema Partilhado
-        run: |
-          cd ios
-          WS_PATH=$(find . -name "*.xcworkspace" -maxdepth 3 | head -n 1 | sed 's|^\./||')
-          echo "IOS_WORKSPACE=$WS_PATH" >> $GITHUB_ENV
-          
-          PROJ_DIR=$(find . -name "*.xcodeproj" -maxdepth 2 | head -n 1)
-          if [ -n "$PROJ_DIR" ]; then
-            mkdir -p "$PROJ_DIR/xcshareddata/xcschemes"
-            
-            cat << 'EOF' > "$PROJ_DIR/xcshareddata/xcschemes/App.xcscheme"
-<?xml version="1.0" encoding="UTF-8"?>
-<Scheme LastUpgradeVersion="1420" version="1.3">
-   <BuildAction parallelizeBuildables="YES" buildImplicitDependencies="YES">
-      <BuildActionEntries>
-         <BuildActionEntry buildForTesting="YES" buildForRunning="YES" buildForProfiling="YES" buildForArchiving="YES" buildForAnalyzing="YES">
-            <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="1E77F38F21F651600003FE46" BuildableName="App.app" BlueprintName="App" ReferencedContainer="container:App.xcodeproj">
-            </BuildableReference>
-         </BuildActionEntry>
-      </BuildActionEntries>
-   </BuildAction>
-   <LaunchAction buildConfiguration="Debug" selectedDebuggerIdentifier="Xcode.DebuggerFoundation.Debugger.LLDB" selectedLauncherIdentifier="Xcode.DebuggerFoundation.Launcher.LLDB" launchStyle="0" useCustomWorkingDirectory="NO" ignoresPersistentStateOnLaunch="NO" debugDocumentVersioning="YES" debugServiceExtension="internal" allowLocationSimulation="YES">
-      <BuildableProductRunnable runnableDebuggingMode="0">
-         <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="1E77F38F21F651600003FE46" BuildableName="App.app" BlueprintName="App" ReferencedContainer="container:App.xcodeproj">
-         </BuildableReference>
-      </BuildableProductRunnable>
-   </LaunchAction>
-   <ProfileAction buildConfiguration="Release" shouldUseLaunchSchemeArgsEnv="YES" savedToolIdentifier="" useCustomWorkingDirectory="NO" debugDocumentVersioning="YES">
-      <BuildableProductRunnable runnableDebuggingMode="0">
-         <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="1E77F38F21F651600003FE46" BuildableName="App.app" BlueprintName="App" ReferencedContainer="container:App.xcodeproj">
-         </BuildableReference>
-      </BuildableProductRunnable>
-   </ProfileAction>
-   <AnalyzeAction buildConfiguration="Debug"></AnalyzeAction>
-   <ArchiveAction buildConfiguration="Release" revealArchiveInOutputStream="YES"></ArchiveAction>
-</Scheme>
-EOF
-            echo "Esquema App.xcscheme criado com sucesso!"
+          if [ ! -d ios ]; then
+            npx cap add ios
           fi
-          cd ..
+          npx cap sync ios
+
+      - name: Localizar Workspace do Xcode
+        run: |
+          cd ios
+          WS_PATH=$(find . -name "*.xcworkspace" -not -path "*/Pods/*" -maxdepth 3 | head -n 1 | sed 's|^\./||')
+          PROJ_PATH=$(find . -name "*.xcodeproj" -not -path "*/Pods/*" -maxdepth 3 | head -n 1 | sed 's|^\./||')
+          echo "IOS_WORKSPACE=$WS_PATH" >> $GITHUB_ENV
+          echo "IOS_PROJECT=$PROJ_PATH" >> $GITHUB_ENV
+          echo "Workspace: $WS_PATH | Project: $PROJ_PATH"
 
       - name: Configurar Ruby e Fastlane
         uses: ruby/setup-ruby@v1
@@ -118,32 +48,59 @@ EOF
           ruby-version: '3.3'
           bundler-cache: false
 
-      - name: Instalar Fastlane globalmente
-        run: sudo gem install fastlane -NV
+      - name: Instalar Fastlane
+        run: gem install fastlane -NV
 
-      - name: Criar Fastfile dinâmico
+      - name: Criar Fastfile
         run: |
           mkdir -p ios/fastlane
           cat << 'EOF' > ios/fastlane/Fastfile
           default_platform(:ios)
 
           platform :ios do
-            desc "Submeter build para o TestFlight"
+            desc "Enviar build para o TestFlight"
             lane :release do
+              key_id    = ENV["ASC_KEY_ID"]
+              issuer_id = ENV["ASC_ISSUER_ID"]
+              key_path  = ENV["ASC_KEY_FILEPATH"]
+              team_id   = ENV["APPLE_TEAM_ID"]
+              build_num = ENV["GITHUB_RUN_NUMBER"] || "1"
+
               app_store_connect_api_key(
-                key_id: ENV["ASC_KEY_ID"],
-                issuer_id: ENV["ASC_ISSUER_ID"],
-                key_filepath: ENV["ASC_KEY_FILEPATH"],
+                key_id: key_id,
+                issuer_id: issuer_id,
+                key_filepath: key_path,
                 duration: 1200,
                 in_house: false
               )
 
-              build_ios_app(
-                workspace: ENV["IOS_WORKSPACE"],
+              signing_args = "-allowProvisioningUpdates " \
+                "-authenticationKeyPath #{key_path} " \
+                "-authenticationKeyID #{key_id} " \
+                "-authenticationKeyIssuerID #{issuer_id}"
+
+              ws = ENV["IOS_WORKSPACE"].to_s
+              proj = ENV["IOS_PROJECT"].to_s
+
+              build_args = {
                 scheme: "App",
                 export_method: "app-store",
-                skip_codesigning: false
-              )
+                clean: true,
+                xcargs: "#{signing_args} DEVELOPMENT_TEAM=#{team_id} CODE_SIGN_STYLE=Automatic CURRENT_PROJECT_VERSION=#{build_num}",
+                export_xcargs: signing_args,
+                export_options: {
+                  method: "app-store",
+                  teamID: team_id,
+                  signingStyle: "automatic"
+                }
+              }
+              if ws.empty?
+                build_args[:project] = proj
+              else
+                build_args[:workspace] = ws
+              end
+
+              build_ios_app(build_args)
 
               upload_to_testflight(
                 skip_waiting_for_build_processing: true
@@ -152,21 +109,18 @@ EOF
           end
           EOF
 
-      - name: Executar Fastfile via Fastlane
+      - name: Executar Fastlane
         env:
           ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
           ASC_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_API_PRIVATE_KEY }}
-          IOS_WORKSPACE: ${{ env.IOS_WORKSPACE }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           mkdir -p ~/.appstoreconnect/private_keys
           KEY_FILE="$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8"
           printf '%s\n' "$ASC_PRIVATE_KEY" > "$KEY_FILE"
-          
-          export ASC_KEY_ID="$ASC_KEY_ID"
-          export ASC_ISSUER_ID="$ASC_ISSUER_ID"
+
           export ASC_KEY_FILEPATH="$KEY_FILE"
-          export IOS_WORKSPACE="$IOS_WORKSPACE"
-          
+
           cd ios
           fastlane release
