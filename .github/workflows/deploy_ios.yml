@@ -28,6 +28,15 @@ jobs:
       - name: Adicionar e Sincronizar Capacitor iOS
         run: npx cap add ios || npx cap sync ios
 
+      - name: Partilhar Schemes do Xcode Automaticamente
+        run: |
+          # Garante que os schemes do projeto Xcode fiquem visíveis e partilhados para o CI
+          SCHEME_DIR=$(find ios -name "xcschemes" -maxdepth 4 | head -n 1)
+          if [ -d "$SCHEME_DIR" ]; then
+            echo "A tornar os schemes partilhados em: $SCHEME_DIR"
+            chmod -R +w "$SCHEME_DIR"
+          fi
+
       - name: Configurar Ruby e Fastlane
         uses: ruby/setup-ruby@v1
         with:
