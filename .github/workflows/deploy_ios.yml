@@ -28,101 +28,6 @@ jobs:
       - name: Adicionar e Sincronizar Capacitor iOS
         run: npx cap add ios || npx cap sync ios
 
-      - name: Garantir Scheme Partilhado (Shared) para o Xcode
-        run: |
-          # Define o caminho para a pasta xcshareddata do projeto Xcode do Capacitor
-          XCODE_PROJ=$(find ios -name "*.xcodeproj" -maxdepth 3 | head -n 1)
-          if [ -n "$XCODE_PROJ" ]; then
-            echo "Projeto Xcode encontrado em: $XCODE_PROJ"
-            mkdir -p "$XCODE_PROJ/xcshareddata/xcschemes"
-            
-            # Cria o ficheiro de scheme partilhado 'App.xcscheme' caso não exista
-            cat << 'EOF' > "$XCODE_PROJ/xcshareddata/xcschemes/App.xcscheme"
-<?xml version="1.0" encoding="UTF-8"?>
-<Scheme
-   LastUpgradeVersion = "1420"
-   version = "1.3">
-   <BuildAction
-      parallelizeBuildables = "YES"
-      buildImplicitDependencies = "YES">
-      <BuildActionEntries>
-         <BuildActionEntry
-            buildForTesting = "YES"
-            buildForRunning = "YES"
-            buildForProfiling = "YES"
-            buildForArchiving = "YES"
-            buildForAnalyzing = "YES">
-            <BuildableReference
-               BuildableIdentifier = "primary"
-               BlueprintIdentifier = "1E77F38F21F651600003FE46"
-               BuildableName = "App.app"
-               BlueprintName = "App"
-               ReferencedContainer = "container:App.xcodeproj">
-            </BuildableReference>
-         </BuildActionEntry>
-      </BuildActionEntries>
-   </BuildAction>
-   <TestAction
-      buildConfiguration = "Debug"
-      selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
-      selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
-      shouldUseLaunchSchemeArgsEnv = "YES">
-      <Testables>
-      </Testables>
-   </TestAction>
-   <LaunchAction
-      buildConfiguration = "Debug"
-      selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
-      selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
-      launchStyle = "0"
-      useCustomWorkingDirectory = "NO"
-      ignoresPersistentStateOnLaunch = "NO"
-      debugDocumentVersioning = "YES"
-      debugServiceExtension = "internal"
-      allowLocationSimulation = "YES">
-      <BuildableProductRunnable
-         runnableDebuggingMode = "0">
-         <BuildableReference
-            BuildableIdentifier = "primary"
-            BlueprintIdentifier = "1E77F38F21F651600003FE46"
-            BuildableName = "App.app"
-            BlueprintName = "App"
-            ReferencedContainer = "container:App.xcodeproj">
-         </BuildableReference>
-      </BuildableProductRunnable>
-   </LaunchAction>
-   <ProfileAction
-      buildConfiguration = "Release"
-      shouldUseLaunchSchemeArgsEnv = "YES"
-      savedToolIdentifier = ""
-      useCustomWorkingDirectory = "NO"
-      debugDocumentVersioning = "YES">
-      <BuildableProductRunnable
-         runnableDebuggingMode = "0">
-         <BuildableReference
-            BuildableIdentifier = "primary"
-            BlueprintIdentifier = "1E77F38F21F651600003FE46"
-            BuildableName = "App.app"
-            BlueprintName = "App"
-            ReferencedContainer = "container:App.xcodeproj">
-         </BuildableReference>
-      </BuildableProductRunnable>
-   </ProfileAction>
-   <AnalyzeAction
-      buildConfiguration = "Debug">
-   </AnalyzeAction>
-   <ArchiveAction
-      buildConfiguration = "Release"
-      revealArchiveInOutputStream = "YES">
-   </ArchiveAction>
-</Scheme>
-EOF
-            echo "Scheme 'App.xcscheme' criado e partilhado com sucesso em xcshareddata!"
-          else
-            echo "Erro: Projeto .xcodeproj não encontrado!"
-            exit 1
-          fi
-
       - name: Configurar Ruby e Fastlane
         uses: ruby/setup-ruby@v1
         with:
@@ -132,13 +37,21 @@ EOF
       - name: Instalar Fastlane globalmente
         run: sudo gem install fastlane -NV
 
-      - name: Localizar Workspace do Xcode Automaticamente
+      - name: Localizar Workspace e Esquemas do Xcode
         run: |
           FOUND_PATH=$(find ios -name "*.xcworkspace" -maxdepth 3 | head -n 1)
           echo "Caminho encontrado: $FOUND_PATH"
           REL_PATH=${FOUND_PATH#ios/}
           echo "IOS_WORKSPACE=$REL_PATH" >> $GITHUB_ENV
-          echo "Workspace relativo definido para: $REL_PATH"
+          
+          # Garante partilha de esquemas automaticamente se existirem
+          XCODE_PROJ=$(find ios -name "*.xcodeproj" -maxdepth 3 | head -n 1)
+          if [ -d "$XCODE_PROJ" ]; then
+            mkdir -p "$XCODE_PROJ/xcshareddata/xcschemes"
+            if [ -d "$XCODE_PROJ/xcuserdata" ]; then
+              cp -R "$XCODE_PROJ/xcuserdata"/*/xcschemes/*.xcscheme "$XCODE_PROJ/xcshareddata/xcschemes/" 2>/dev/null || true
+            fi
+          fi
 
       - name: Criar Fastfile dinâmico
         run: |
