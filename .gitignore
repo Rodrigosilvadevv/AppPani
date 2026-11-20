@@ -1,0 +1,15 @@
+node_modules
+dist
+.env
+.env.local
+*.local
+.DS_Store
+
+# Projetos nativos são gerados por `npx cap add` — descomente se quiser versionar (recomendado antes de publicar)
+# android
+# ios
+android/app/build
+android/.gradle
+android/local.properties
+ios/App/Pods
+ios/App/build
