@@ -135,6 +135,16 @@ export async function enviarImagem(file, uid, max = 1280) {
 
 /* ---------- aviso sonoro de pedido novo (a cozinha ouve mesmo sem olhar o celular) ---------- */
 let ctxAudio;
+/* O navegador só deixa tocar som depois de um toque na página: chame no primeiro clique. */
+export function destravarAudio() {
+  try {
+    ctxAudio ||= new (window.AudioContext || window.webkitAudioContext)();
+    if (ctxAudio.state === 'suspended') ctxAudio.resume();
+    return ctxAudio.state !== 'suspended';
+  } catch { return false; }
+}
+export const audioLiberado = () => Boolean(ctxAudio && ctxAudio.state === 'running');
+
 export function beep() {
   try {
     ctxAudio ||= new (window.AudioContext || window.webkitAudioContext)();

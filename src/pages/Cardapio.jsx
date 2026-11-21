@@ -144,8 +144,8 @@ export default function Cardapio() {
           </Link>
         )}
         {p.delivery && (
-          <Link to={`/?delivery=${p.id}`} className="mx-4 mb-2 flex items-center gap-2 rounded-xl bg-blue-700 text-white px-3 py-2.5 text-sm font-semibold">
-            <Bike size={16} /><span className="flex-1">Quer receber em casa? Peça delivery pelo app</span>
+          <Link to={`/d/${p.slug}`} className="mx-4 mb-2 flex items-center gap-2 rounded-xl bg-blue-700 text-white px-3 py-2.5 text-sm font-semibold">
+            <Bike size={16} /><span className="flex-1">Quer receber em casa? Peça delivery aqui</span>
           </Link>
         )}
 

@@ -32,3 +32,6 @@ img { max-width: 100%; }
 }
 
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+/* alerta de pedido novo na tela da pani */
+@keyframes alertaEntra { from { transform: translateY(-14px); opacity: 0; } to { transform: none; opacity: 1; } }

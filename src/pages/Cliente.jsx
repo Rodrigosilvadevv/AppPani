@@ -2,12 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
   Bell, BellOff, Bike, Cake, ChevronLeft, ChevronRight, Home, LogOut, MapPin, Megaphone,
-  Pencil, Search, Send, Sandwich, Settings, Share2, Trash2, UserX, UtensilsCrossed, Wheat,
+  Pencil, Search, Send, Sandwich, Settings, Share2, Trash2, UserX, Wheat,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../auth/AuthProvider';
 import {
-  Av, Chip, FotoBtn, HorariosView, LinhaPush, Logo, NavBtn, Pic, PushBanner, Selo, Shell,
+  Av, Chip, FotoBtn, HorariosView, LinhaPush, Logo, NavBtn, Pic, PushBanner, Selo,
   SkeletonFeed, StatusBadge, Stars, Vazio, btn, btn2, card, inp, useConfirm, useToast,
 } from '../ui';
 import { distKm, fresco, kmFmt, media, notaFmt, statusAgora, tempo } from '../lib/util';
@@ -30,6 +30,54 @@ const CATS = {
   doce: { nome: 'Doces', un: 'doce', ic: Cake, emoji: '🍰' },
 };
 const LOC_CACHE = 'apppani:loc';
+const MSG_SEGUIR = 'Siga pelo menos uma pani para ativar os avisos. Você só recebe notificações das panis que segue.';
+
+/* Moldura responsiva do cliente:
+   celular → barra de abas embaixo, tela inteira;
+   tablet/computador → menu lateral à esquerda e o conteúdo numa coluna central legível. */
+function ShellCliente({ top, itens, children, scrollRef }) {
+  return (
+    <div className="fixed inset-0 bg-stone-100 flex justify-center">
+      <div className="relative w-full h-full bg-white flex md:max-w-5xl md:border-x border-stone-200">
+        {itens && (
+          <aside className="hidden md:flex flex-col w-56 lg:w-64 shrink-0 border-r border-stone-200 px-3"
+            style={{ paddingTop: 'max(1.25rem, env(safe-area-inset-top))' }}>
+            <div className="px-3 pb-6"><Logo /></div>
+            <nav className="flex flex-col gap-1" aria-label="Menu">
+              {itens.map((i) => <ItemMenu key={i.label} {...i} lateral />)}
+            </nav>
+          </aside>
+        )}
+        <div className="flex-1 min-w-0 flex flex-col">
+          <header className="shrink-0 border-b border-stone-200" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
+            <div className="mx-auto w-full max-w-2xl min-h-12 px-4 flex items-center gap-2">{top}</div>
+          </header>
+          <main ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+            <div className="mx-auto w-full max-w-2xl min-h-full">{children}</div>
+          </main>
+          {itens && (
+            <nav className="md:hidden shrink-0 border-t border-stone-200 flex justify-around pt-2" aria-label="Menu"
+              style={{ paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))' }}>
+              {itens.map((i) => <ItemMenu key={i.label} {...i} />)}
+            </nav>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ItemMenu({ icon: I, label, on, click, badge, lateral }) {
+  if (!lateral) return <NavBtn icon={I} label={label} on={on} click={click} badge={badge} />;
+  return (
+    <button onClick={() => { haptic(); click(); }} aria-current={on ? 'page' : undefined}
+      className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors ${on ? 'bg-stone-100 font-semibold text-stone-900' : 'text-stone-600 hover:bg-stone-50'}`}>
+      <I size={20} strokeWidth={on ? 2.25 : 1.5} aria-hidden="true" />
+      <span className="flex-1 text-left">{label}</span>
+      {badge > 0 && <span className="bg-red-600 text-white text-[10px] font-semibold rounded-full min-w-5 h-5 px-1.5 flex items-center justify-center">{badge > 99 ? '99+' : badge}</span>}
+    </button>
+  );
+}
 
 const Nota = ({ lista }) => (
   <span className="flex items-center gap-1 text-xs text-stone-500">
@@ -38,7 +86,8 @@ const Nota = ({ lista }) => (
 );
 
 /* Faixa Pães / Salgados / Doces: toque no ícone para filtrar; "Avisar" liga o push daquela categoria */
-function Especiais({ filtro, setFiltro }) {
+/* podeAvisar: só liga aviso quem segue (no início: alguma pani; na página da pani: aquela pani) */
+function Especiais({ filtro, setFiltro, podeAvisar, msgBloqueio = MSG_SEGUIR }) {
   const { user, perfil, refresh } = useAuth();
   const say = useToast();
   const [salvando, setSalvando] = useState(null);
@@ -46,6 +95,7 @@ function Especiais({ filtro, setFiltro }) {
   const setPref = async (k) => {
     if (!perfil || salvando) return;
     const v = !perfil[`av_${k}`];
+    if (v && !podeAvisar) { haptic('erro'); return say(msgBloqueio, 'erro'); } // desligar sempre pode
     setSalvando(k);
     try {
       if (v && pushStatus() !== 'ativo') {
@@ -60,7 +110,7 @@ function Especiais({ filtro, setFiltro }) {
   };
 
   return (
-    <div className="flex justify-around px-2 py-3 border-b border-stone-200">
+    <div className="flex justify-around sm:justify-center sm:gap-12 px-2 py-3 border-b border-stone-200">
       {Object.entries(CATS).map(([k, c]) => {
         const on = Boolean(perfil?.[`av_${k}`]);
         return (
@@ -71,7 +121,7 @@ function Especiais({ filtro, setFiltro }) {
             </button>
             <span className="text-xs font-semibold">{c.nome}</span>
             <button onClick={() => setPref(k)} disabled={salvando === k}
-              className={`flex items-center gap-1 text-[11px] rounded-full px-2 py-1 border disabled:opacity-50 ${on ? 'bg-red-600 text-white border-red-600' : 'border-stone-300 text-stone-600'}`}>
+              className={`flex items-center gap-1 text-[11px] rounded-full px-2 py-1 border disabled:opacity-50 ${on ? 'bg-red-600 text-white border-red-600' : podeAvisar ? 'border-stone-300 text-stone-600' : 'border-stone-200 text-stone-400'}`}>
               {on ? <Bell size={11} /> : <BellOff size={11} />}{on ? 'Avisando' : 'Avisar'}
             </button>
           </div>
@@ -117,7 +167,7 @@ function FeedItem({ it, pani, open, curtidas, nComentarios, bloquear, abrirComen
     if (r === 'copiado') say('Link copiado');
   };
   return (
-    <article className="px-3 pb-3 mb-1 border-b border-stone-100">
+    <article className="px-3 sm:px-0 pb-3 mb-1 border-b border-stone-100 sm:mx-auto sm:max-w-xl">
       <div className="flex items-center gap-2 py-2">
         <button onClick={() => open?.(pani.id)} className="flex items-center gap-2 flex-1 min-w-0 text-left">
           <Av src={pani.foto_url} emoji={pani.emoji} size={32} />
@@ -170,16 +220,17 @@ function Lista({ panis, follows, open, seguir, loc, pedirLoc }) {
         <Chip on={soAbertas} onClick={() => setSoAbertas((v) => !v)}>Abertas agora</Chip>
       </div>
       {L.length === 0 && <Vazio t="Nenhuma pani encontrada com esse filtro." />}
+      <div className="grid sm:grid-cols-2 sm:gap-x-6">
       {L.map((p) => {
         const d = dist(p);
         const seguindo = follows.includes(p.id);
         return (
-          <div key={p.id} className="flex items-center gap-3 py-2">
+          <div key={p.id} className="flex items-center gap-3 py-2 min-w-0">
             <button onClick={() => open(p.id)} className="flex items-center gap-3 flex-1 min-w-0 text-left">
               <Av src={p.foto_url} emoji={p.emoji} size={52} />
               <span className="min-w-0">
                 <span className="block font-semibold text-sm truncate">{p.nome}</span><Nota lista={p.comentarios} />
-                <span className="flex gap-3 text-xs text-stone-500">
+                <span className="flex flex-wrap gap-x-3 text-xs text-stone-500">
                   {d != null && <span className="flex items-center gap-0.5"><MapPin size={11} />{kmFmt(d)}</span>}
                   <span>{p.seguidores ?? 0} seguidores</span>
                   {p.delivery && <span className="flex items-center gap-0.5 text-blue-700 font-semibold"><Bike size={11} />delivery</span>}
@@ -190,6 +241,7 @@ function Lista({ panis, follows, open, seguir, loc, pedirLoc }) {
           </div>
         );
       })}
+      </div>
     </div>
   );
 }
@@ -271,7 +323,7 @@ function PaniPage({ p, follows, seguir, loc, recarregar, bloquear, abrirDelivery
 
   return (
     <div>
-      <Capa p={p} />
+      <Capa p={p} altura="h-36 sm:h-48 md:h-56" />
       <div className="px-4 pt-11 pb-3 text-sm">
         <div className="flex items-center gap-2 flex-wrap">
           <h2 className="font-bold text-lg leading-tight">{p.nome}</h2>
@@ -283,19 +335,18 @@ function PaniPage({ p, follows, seguir, loc, recarregar, bloquear, abrirDelivery
         <div className="text-xs text-stone-500 flex items-center gap-3 flex-wrap"><span>{p.seguidores ?? 0} seguidores</span><StatusBadge p={p} /></div>
         <Redes p={p} className="mt-2" />
       </div>
+      {/* o cardápio das mesas fica só no QR da pani; aqui o cliente segue e pede delivery */}
       <div className="flex gap-2 px-4 pb-3">
         <button onClick={() => seguir(p.id)} className={`flex-1 ${seguindo ? btn2 : btn}`}>{seguindo ? 'Seguindo' : 'Seguir'}</button>
-        <Link to={`/c/${p.slug}`} className={`flex-1 ${btn2} flex items-center justify-center gap-2`}><UtensilsCrossed size={16} />Cardápio</Link>
+        {p.delivery && (
+          <button onClick={() => abrirDelivery(p.id)} className="flex-1 bg-blue-700 text-white rounded-lg px-3 py-2 text-sm font-semibold flex items-center justify-center gap-2 active:opacity-80">
+            <Bike size={17} />Pedir delivery
+          </button>
+        )}
         <button onClick={share} aria-label="Compartilhar" className={btn2}><Share2 size={16} /></button>
       </div>
-      {p.delivery && (
-        <div className="px-4 pb-3">
-          <button onClick={() => abrirDelivery(p.id)} className="w-full bg-blue-700 text-white rounded-lg px-4 py-3 text-sm font-semibold flex items-center justify-center gap-2 active:opacity-80">
-            <Bike size={18} />Pedir delivery
-          </button>
-        </div>
-      )}
-      <Especiais filtro={filtro} setFiltro={setFiltro} />
+      <Especiais filtro={filtro} setFiltro={setFiltro} podeAvisar={seguindo}
+        msgBloqueio={`Siga a ${p.nome} para receber os avisos de fornada dela.`} />
       <div className="flex border-b border-stone-200">
         {[['nov', 'Novidades'], ['com', 'Comentários'], ['hor', 'Horários']].map(([k, l]) => (
           <button key={k} onClick={() => setTab(k)} className={`flex-1 py-3 text-xs font-semibold border-b-2 ${tab === k ? 'border-stone-900' : 'border-transparent text-stone-400'}`}>{l}</button>
@@ -307,7 +358,7 @@ function PaniPage({ p, follows, seguir, loc, recarregar, bloquear, abrirDelivery
             <FeedItem key={it.tipo + it.id} it={it} pani={p} curtidas={curtidas} nComentarios={nComent(it)} bloquear={bloquear}
               abrirComentarios={(item) => setComent({ item, pani: p })} />
           ))
-        : <Vazio t="Nada por aqui ainda. Ative o Avisar para saber quando sair a próxima fornada." />)}
+        : <Vazio t={seguindo ? 'Nada por aqui ainda. Ative o Avisar para saber quando sair a próxima fornada.' : 'Nada por aqui ainda. Siga a pani e ative o Avisar para saber quando sair a próxima fornada.'} />)}
 
       {tab === 'com' && (
         <div className="p-3">
@@ -380,8 +431,26 @@ function DadosEntrega() {
   );
 }
 
+/* ---------- notificações: só liga quem segue alguma pani ---------- */
+function Notificacoes({ seguindo, explorar }) {
+  // quem já tem ativo continua vendo o botão (pode desligar mesmo sem seguir ninguém)
+  if (seguindo > 0 || pushStatus() === 'ativo') {
+    return <LinhaPush textoAtivo="Avisos das panis que você segue e de cada passo do seu pedido." />;
+  }
+  return (
+    <div className={`${card} flex items-start gap-3`}>
+      <span className="w-9 h-9 rounded-full bg-stone-100 text-stone-400 flex items-center justify-center shrink-0"><BellOff size={18} /></span>
+      <div className="flex-1 min-w-0 text-sm">
+        <div className="font-semibold">Notificações</div>
+        <p className="text-stone-500 text-xs mt-0.5">{MSG_SEGUIR}</p>
+        <button onClick={explorar} className="mt-2 text-xs font-semibold text-red-700 flex items-center gap-1">Encontrar panis para seguir <ChevronRight size={14} /></button>
+      </div>
+    </div>
+  );
+}
+
 /* ---------- Ajustes do cliente ---------- */
-function Ajustes({ pedirLoc, loc, panis, bloqueios }) {
+function Ajustes({ pedirLoc, loc, panis, bloqueios, seguindo, explorar }) {
   const { user, perfil, refresh, signOut } = useAuth();
   const say = useToast();
   const confirmar = useConfirm();
@@ -409,7 +478,7 @@ function Ajustes({ pedirLoc, loc, panis, bloqueios }) {
   const bloqueadas = panis.filter((p) => bloqueios.bloqueados.includes(p.id));
 
   return (
-    <div className="p-4 flex flex-col gap-4">
+    <div className="p-4 sm:py-6 flex flex-col gap-4 sm:max-w-lg sm:mx-auto">
       <div className="flex items-center gap-4"><Av src={perfil.foto_url} emoji="🙂" size={72} /><FotoBtn img={perfil.foto_url} onUrl={foto} /></div>
 
       <label className="text-sm font-semibold">Seu nome
@@ -419,7 +488,7 @@ function Ajustes({ pedirLoc, loc, panis, bloqueios }) {
         </div>
       </label>
 
-      <LinhaPush textoAtivo="Avisos de fornada e de cada passo do seu pedido." />
+      <Notificacoes seguindo={seguindo} explorar={explorar} />
 
       <DadosEntrega />
 
@@ -564,7 +633,7 @@ export default function Cliente() {
 
   const verNovas = () => { setNovos(0); carregarFeed(); scroll.current?.scrollTo({ top: 0, behavior: 'smooth' }); };
 
-  if (!panis) return <Shell top={<Logo />} nav={null}><SkeletonFeed /></Shell>;
+  if (!panis) return <ShellCliente top={<Logo />}><SkeletonFeed /></ShellCliente>;
 
   const pani = panis.find((p) => p.id === aberta);
   const go = (t) => { setTab(t); setAberta(null); setLojaDelivery(null); setPedidoDelivery(null); scroll.current?.scrollTo({ top: 0 }); };
@@ -572,26 +641,35 @@ export default function Cliente() {
   const visiveis = panis.filter((p) => !bloqueios.bloqueados.includes(p.id));
   const lista = <Lista panis={visiveis} follows={follows} open={setAberta} seguir={seguir} loc={loc} pedirLoc={pedirLoc} />;
 
+  const TITULOS = { explorar: 'Explorar', delivery: 'Delivery', ajustes: 'Ajustes' };
+  const menu = [
+    { icon: Home, label: 'Início', on: !aberta && tab === 'home', click: () => go('home'), badge: novos },
+    { icon: Search, label: 'Explorar', on: !aberta && tab === 'explorar', click: () => go('explorar') },
+    { icon: Bike, label: 'Delivery', on: !aberta && tab === 'delivery', click: () => go('delivery'), badge: meus.ativos.length },
+    { icon: Settings, label: 'Ajustes', on: !aberta && tab === 'ajustes', click: () => go('ajustes') },
+  ];
+
   return (
-    <Shell
+    <ShellCliente
       scrollRef={scroll}
+      itens={menu}
       top={pani
         ? <><button onClick={() => setAberta(null)} aria-label="Voltar" className="p-1 -ml-1"><ChevronLeft size={22} /></button><span className="font-bold text-sm truncate">{pani.nome}</span></>
-        : <><Logo /><span className="ml-auto text-xs text-stone-400">{tab === 'home' && follows.length > 0 ? `${follows.length} seguindo` : ''}</span></>}
-      nav={<>
-        <NavBtn icon={Home} label="Início" on={!aberta && tab === 'home'} click={() => go('home')} badge={novos} />
-        <NavBtn icon={Search} label="Explorar" on={!aberta && tab === 'explorar'} click={() => go('explorar')} />
-        <NavBtn icon={Bike} label="Delivery" on={!aberta && tab === 'delivery'} click={() => go('delivery')} badge={meus.ativos.length} />
-        <NavBtn icon={Settings} label="Ajustes" on={!aberta && tab === 'ajustes'} click={() => go('ajustes')} />
-      </>}>
+        : <>
+            {/* no computador a logo já está no menu lateral; lá o topo mostra o nome da aba */}
+            <span className="md:hidden"><Logo /></span>
+            <span className="hidden md:block font-bold">{TITULOS[tab] || 'Início'}</span>
+            <span className="ml-auto text-xs text-stone-400">{tab === 'home' && follows.length > 0 ? `${follows.length} seguindo` : ''}</span>
+          </>}>
       {pani ? <PaniPage p={pani} follows={follows} seguir={seguir} loc={loc} recarregar={carregar} bloquear={bloqueios.bloquear} abrirDelivery={abrirDelivery} />
         : tab === 'explorar' ? lista
         : tab === 'delivery' ? <Delivery panis={visiveis} loc={loc} pedirLoc={pedirLoc} lojaInicial={lojaDelivery} pedidoInicial={pedidoDelivery} meus={meus} />
-        : tab === 'ajustes' ? <Ajustes pedirLoc={pedirLoc} loc={loc} panis={panis} bloqueios={bloqueios} />
+        : tab === 'ajustes' ? <Ajustes pedirLoc={pedirLoc} loc={loc} panis={panis} bloqueios={bloqueios} seguindo={follows.length} explorar={() => go('explorar')} />
         : <>
-            <PushBanner />
+            {/* convite para ativar notificações só aparece para quem já segue alguma pani */}
+            {follows.length > 0 && <PushBanner />}
             <Cards cards={cards} avisos={avisos} />
-            <Especiais filtro={filtro} setFiltro={setFiltro} />
+            <Especiais filtro={filtro} setFiltro={setFiltro} podeAvisar={follows.length > 0} />
             {novos > 0 && (
               <button onClick={verNovas} className="sticky top-2 z-10 mx-auto my-2 block bg-stone-900 text-white text-xs font-semibold rounded-full px-4 py-2 shadow-lg">
                 {novos === 1 ? '1 fornada nova' : `${novos} fornadas novas`} · ver
@@ -613,6 +691,6 @@ export default function Cliente() {
                     })}
             {coment && <SheetComentarios item={coment.item} pani={coment.pani} fechar={() => setComent(null)} aoMudar={() => setRecarga((n) => n + 1)} />}
           </>}
-    </Shell>
+    </ShellCliente>
   );
 }

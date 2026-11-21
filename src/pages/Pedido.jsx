@@ -17,7 +17,7 @@ export default function Pedido() {
           <Logo size="text-xl" />
         </header>
         <AcompanharPedido id={id} rodape={
-          <Link to={destino} className={`${btn} text-center`}>{destino.startsWith('/c/') ? 'Fazer outro pedido' : 'Voltar ao app'}</Link>
+          <Link to={destino} className={`${btn} text-center`}>{destino.startsWith('/c/') || destino.startsWith('/d/') ? 'Fazer outro pedido' : 'Voltar ao app'}</Link>
         } />
       </div>
     </div>

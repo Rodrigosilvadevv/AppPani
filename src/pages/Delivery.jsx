@@ -15,6 +15,9 @@ const CATS = { pao: ['🥖', 'Pães'], salgado: ['🥟', 'Salgados'], doce: ['�
 const PESOS = [100, 200, 250, 500, 750, 1000, 1500, 2000];
 const sacolaKey = (id) => `apppani:sacola:${id}`;
 const lerSacola = (id) => { try { return JSON.parse(localStorage.getItem(sacolaKey(id))) || {}; } catch { return {}; } };
+// quem pede pelo link sem conta: nome/telefone/endereço ficam só neste aparelho para o próximo pedido
+const ENTREGA_LOCAL = 'apppani:entrega';
+const lerEntregaLocal = () => { try { return JSON.parse(localStorage.getItem(ENTREGA_LOCAL)) || {}; } catch { return {}; } };
 
 /* ---------- meus pedidos (usado também para o número no menu) ---------- */
 export function useMeusPedidos(uid) {
@@ -101,7 +104,13 @@ function Item({ it, qtd, mudar, abrirPeso, aberto, quente }) {
 function Checkout({ p, linhas, subtotal, mudar, abrirPeso, fechar, feito }) {
   const { user, perfil } = useAuth();
   const say = useToast();
-  const [f, setF] = useState({ nome: perfil?.nome || '', telefone: foneFmt(perfil?.telefone || ''), endereco: '', pagamento: null, troco: '', obs: '' });
+  const [f, setF] = useState(() => {
+    const local = user ? {} : lerEntregaLocal();
+    return {
+      nome: perfil?.nome || local.nome || '', telefone: foneFmt(perfil?.telefone || local.telefone || ''),
+      endereco: local.endereco || '', pagamento: null, troco: '', obs: '',
+    };
+  });
   const [busy, setBusy] = useState(false);
   const [erro, setErro] = useState('');
   const taxa = Number(p.taxa_entrega) || 0;
@@ -123,6 +132,7 @@ function Checkout({ p, linhas, subtotal, mudar, abrirPeso, fechar, feito }) {
     setErro('');
     if (!aberto) return setErro('A panificadora está fechada agora.');
     if (falta > 0) return setErro(`Faltam ${money(falta)} para o pedido mínimo.`);
+    if (!user && f.nome.trim().length < 2) return setErro('Informe seu nome.');
     if (f.endereco.trim().length < 8) return setErro('Informe o endereço completo: rua, número e bairro.');
     const fone = soDigitos(f.telefone);
     if (fone.length < 10 || fone.length > 13) return setErro('Informe um telefone com DDD.');
@@ -137,6 +147,9 @@ function Checkout({ p, linhas, subtotal, mudar, abrirPeso, fechar, feito }) {
         cliente: f.nome.trim() || perfil?.nome || '', telefone: fone, endereco: f.endereco.trim(),
         pagamento: f.pagamento, troco, obs: f.obs.trim(),
       });
+      if (!user) {
+        try { localStorage.setItem(ENTREGA_LOCAL, JSON.stringify({ nome: f.nome.trim(), telefone: fone, endereco: f.endereco.trim() })); } catch { /* ignora */ }
+      }
       haptic('sucesso');
       feito(r.id);
     } catch (e) {
@@ -172,7 +185,7 @@ function Checkout({ p, linhas, subtotal, mudar, abrirPeso, fechar, feito }) {
 
       <div className="flex flex-col gap-2 mt-4">
         <b className="text-sm">Entrega</b>
-        <input className={inp} maxLength={60} placeholder="Seu nome" value={f.nome} onChange={(e) => setF({ ...f, nome: e.target.value })} autoComplete="name" />
+        <input className={inp} maxLength={60} placeholder={user ? 'Seu nome' : 'Seu nome *'} value={f.nome} onChange={(e) => setF({ ...f, nome: e.target.value })} autoComplete="name" />
         <input className={inp} type="tel" inputMode="tel" maxLength={20} placeholder="Telefone com DDD *" value={f.telefone} onChange={(e) => setF({ ...f, telefone: e.target.value })} autoComplete="tel" />
         <textarea className={inp} rows={2} maxLength={300} placeholder="Endereço: rua, número, bairro e referência *" value={f.endereco} onChange={(e) => setF({ ...f, endereco: e.target.value })} autoComplete="street-address" />
 
@@ -185,6 +198,7 @@ function Checkout({ p, linhas, subtotal, mudar, abrirPeso, fechar, feito }) {
         )}
         <input className={inp} maxLength={300} placeholder="Observações (ex.: pão bem moreninho)" value={f.obs} onChange={(e) => setF({ ...f, obs: e.target.value })} />
 
+        {!user && <p className="text-[11px] text-stone-400">Sem cadastro: depois de pedir, você acompanha o pedido por um link. Seus dados de entrega ficam salvos só neste aparelho.</p>}
         {erro && <p role="alert" className="text-sm text-red-700">{erro}</p>}
         <button onClick={enviar} disabled={busy || !aberto || falta > 0 || !linhas.length} className={`${btn} mt-1`}>
           {busy ? 'Enviando…' : !aberto ? 'Fechado agora' : `Fazer pedido · ${money(total)}`}
@@ -195,8 +209,8 @@ function Checkout({ p, linhas, subtotal, mudar, abrirPeso, fechar, feito }) {
   );
 }
 
-/* ---------- a loja de uma pani ---------- */
-function Loja({ p, voltar, aoPedir }) {
+/* ---------- a loja de uma pani (também usada no link público /d/:slug) ---------- */
+export function Loja({ p, voltar, aoPedir }) {
   const say = useToast();
   const [itens, setItens] = useState(null);
   const [quentes, setQuentes] = useState([]);
@@ -258,11 +272,13 @@ function Loja({ p, voltar, aoPedir }) {
 
   return (
     <div className="pb-28">
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-stone-100">
-        <button onClick={voltar} aria-label="Voltar" className="p-1 -ml-1"><ChevronLeft size={22} /></button>
-        <span className="font-semibold text-sm truncate flex-1">Delivery · {p.nome}</span>
-      </div>
-      <Capa p={p} altura="h-32" />
+      {voltar && (
+        <div className="flex items-center gap-2 px-3 py-2 border-b border-stone-100">
+          <button onClick={voltar} aria-label="Voltar" className="p-1 -ml-1"><ChevronLeft size={22} /></button>
+          <span className="font-semibold text-sm truncate flex-1">Delivery · {p.nome}</span>
+        </div>
+      )}
+      <Capa p={p} altura="h-32 sm:h-44" />
       <div className="px-4 pt-11 pb-3 text-sm">
         <h2 className="font-bold text-lg leading-tight">{p.nome}</h2>
         <StatusBadge p={p} />
@@ -292,8 +308,9 @@ function Loja({ p, voltar, aoPedir }) {
       </div>
 
       {linhas.length > 0 && !checkout && (
-        <div className="fixed bottom-16 inset-x-0 flex justify-center px-3 z-20" style={{ marginBottom: 'env(safe-area-inset-bottom)' }}>
-          <button onClick={() => setCheckout(true)} className="w-full max-w-md bg-red-600 text-white rounded-xl py-3.5 px-4 font-semibold flex items-center justify-between shadow-lg">
+        // fica grudada no fim da área rolável: funciona com a barra de baixo (celular) e com o menu lateral (computador)
+        <div className="sticky bottom-0 z-20 px-3 pt-4 pb-3 bg-gradient-to-t from-white via-white/95 to-transparent">
+          <button onClick={() => setCheckout(true)} className="w-full bg-red-600 text-white rounded-xl py-3.5 px-4 font-semibold flex items-center justify-between shadow-lg">
             <span className="flex items-center gap-2"><ShoppingBag size={18} />Ver sacola ({nItens})</span><span>{money(subtotal)}</span>
           </button>
         </div>
@@ -374,8 +391,9 @@ export default function Delivery({ panis, loc, pedirLoc, lojaInicial, pedidoInic
       {lojas.length === 0 && (
         <Vazio t={q ? 'Nenhuma panificadora com delivery encontrada.' : 'Ainda não tem panificadora fazendo delivery por aqui. Siga suas favoritas e peça para elas ligarem!'} />
       )}
+      <div className="grid gap-3 sm:grid-cols-2">
       {lojas.map(({ p, aberta, d }) => (
-        <button key={p.id} onClick={() => setLoja(p.id)} className={`rounded-2xl border border-stone-200 overflow-hidden text-left ${aberta ? '' : 'opacity-70'}`}>
+        <button key={p.id} onClick={() => setLoja(p.id)} className={`rounded-2xl border border-stone-200 overflow-hidden text-left min-w-0 ${aberta ? '' : 'opacity-70'}`}>
           <div className="relative">
             {p.capa_url
               ? <img src={p.capa_url} alt="" loading="lazy" className="w-full h-24 object-cover bg-stone-200" />
@@ -398,6 +416,7 @@ export default function Delivery({ panis, loc, pedirLoc, lojaInicial, pedidoInic
           </div>
         </button>
       ))}
+      </div>
 
       {anteriores.length > 0 && (
         <div className="mt-2">

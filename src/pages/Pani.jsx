@@ -7,12 +7,13 @@ import {
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../auth/AuthProvider';
+import { AlertaPedidos, AtivarAlertas } from '../components/AlertaPedidos';
 import {
   Av, Chip, FotoBtn, LinhaPush, Logo, NavBtn, Pic, Segmento, Selo, Sheet, Shell, SkeletonFeed, Spinner,
   Switch, Vazio, btn, btn2, card, inp, useConfirm, useToast,
 } from '../ui';
 import {
-  DIAS, VALIDADE_H, beep, foneFmt, fresco, getHorarios, idade, inicioDoDia, limpaInstagram, linhaTotal, linkMapa,
+  DIAS, VALIDADE_H, foneFmt, fresco, getHorarios, idade, inicioDoDia, limpaInstagram, linhaTotal, linkMapa,
   linkWhatsapp, money, pn, precoFmt, qtdFmt, slugify, soDigitos, tempo,
 } from '../lib/util';
 import { ABERTOS, PAGAMENTOS, PROXIMO, STATUS, avisarStatus, codigo } from '../lib/pedidos';
@@ -594,7 +595,7 @@ function Pedidos({ lista, recarregar, menu, pid, som, setSom, delivery }) {
  * ========================================================================= */
 const TIPOS = [['chapa', 'Chapa'], ['bebida', 'Bebida'], ['balcao', 'Balcão (só ver)']];
 
-function SheetQr({ link, nome, fechar }) {
+function SheetQr({ link, nome, fechar, titulo = 'QR code da mesa', texto = 'Imprima e deixe nas mesas. O cliente aponta a câmera, vê o cardápio e pede sem chamar ninguém.' }) {
   const say = useToast();
   const [url, setUrl] = useState(null);
   useEffect(() => {
@@ -610,8 +611,8 @@ function SheetQr({ link, nome, fechar }) {
     return () => { vivo = false; };
   }, [link]);
   return (
-    <Sheet aberto fechar={fechar} titulo="QR code da mesa">
-      <p className="text-sm text-stone-600">Imprima e deixe nas mesas. O cliente aponta a câmera, vê o cardápio e pede sem chamar ninguém.</p>
+    <Sheet aberto fechar={fechar} titulo={titulo}>
+      <p className="text-sm text-stone-600">{texto}</p>
       <div className="flex justify-center my-4">
         {url == null ? <Spinner /> : url ? <img src={url} alt={`QR code do cardápio da ${nome}`} className="w-56 h-56 rounded-xl border border-stone-200" />
           : <p className="text-sm text-red-700">Não foi possível gerar o QR agora.</p>}
@@ -991,7 +992,14 @@ function Delivery({ p, patch }) {
   const [d, setD] = useState({ taxa: fmt(p.taxa_entrega), minimo: fmt(p.pedido_minimo), tempo: p.tempo_entrega || '40–60 min' });
   const [itens, setItens] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [qr, setQr] = useState(false);
   const on = Boolean(p.delivery);
+  const link = `${APP_URL}/d/${p.slug}`; // pedido pelo navegador, sem conta e sem baixar o app
+
+  const copiarLink = async () => {
+    const r = await compartilhar({ title: `${p.nome} · Delivery`, text: `Peça delivery da ${p.nome} 🛵`, url: link });
+    if (r === 'copiado') say('Link do delivery copiado');
+  };
 
   useEffect(() => {
     supabase.from('cardapio_itens').select('id, tipo, cat, unidade, preco, ativo').eq('pani_id', p.id).eq('tipo', 'balcao')
@@ -1019,7 +1027,7 @@ function Delivery({ p, patch }) {
         <Bike size={18} className={on ? 'text-blue-700 shrink-0' : 'text-stone-400 shrink-0'} />
         <div className="flex-1">
           <b>Modo delivery</b>
-          <div className="text-xs text-stone-500">{on ? 'Ligado: seus clientes pedem pelo app e o pedido cai em Pedidos, com som.' : 'Desligado: ninguém consegue pedir entrega.'}</div>
+          <div className="text-xs text-stone-500">{on ? 'Ligado: pedem pelo app ou pelo seu link, e o pedido cai em Pedidos com alerta na tela.' : 'Desligado: ninguém consegue pedir entrega.'}</div>
         </div>
         <Switch on={on} set={ligar} label="Modo delivery" />
       </div>
@@ -1031,6 +1039,15 @@ function Delivery({ p, patch }) {
       )}
       {on && (
         <>
+          <div className="rounded-xl bg-white border border-blue-200 p-3">
+            <b className="text-xs">Seu link de delivery</b>
+            <p className="text-[11px] text-stone-500 mt-0.5">Mande no WhatsApp, coloque na bio do Instagram ou imprima o QR. Qualquer pessoa pede pelo navegador, sem baixar o app e sem criar conta.</p>
+            <div className="flex gap-2 mt-2 items-center">
+              <span className="flex-1 min-w-0 truncate text-xs text-blue-800 bg-blue-50 rounded-lg px-2.5 py-2.5 select-all" data-selecionavel>{link}</span>
+              <button onClick={copiarLink} aria-label="Copiar ou compartilhar o link" className={btn2}><Copy size={16} /></button>
+              <button onClick={() => setQr(true)} aria-label="QR code do delivery" className={btn2}><QrCode size={16} /></button>
+            </div>
+          </div>
           <div className="grid grid-cols-2 gap-2">
             <label className="text-xs font-semibold">Taxa de entrega (R$)
               <input className={`${inp} mt-1 font-normal`} inputMode="decimal" value={d.taxa} onChange={(e) => setD({ ...d, taxa: e.target.value })} placeholder="0,00 = grátis" />
@@ -1045,6 +1062,8 @@ function Delivery({ p, patch }) {
           <button onClick={salvar} disabled={busy} className={btn}>{busy ? 'Salvando…' : 'Salvar entrega'}</button>
         </>
       )}
+      {qr && <SheetQr link={link} nome={p.nome} fechar={() => setQr(false)} titulo="QR code do delivery"
+        texto="Cole no balcão, na sacola ou no panfleto. O cliente aponta a câmera e pede delivery pelo navegador." />}
     </div>
   );
 }
@@ -1204,7 +1223,6 @@ function Ajustes({ p, reload }) {
  * ========================================================================= */
 export default function PaniApp() {
   const { user, signOut } = useAuth();
-  const say = useToast();
   const [p, setP] = useState(undefined);
   const [tab, setTab] = useState('painel');
   const [pedidos, setPedidos] = useState([]);
@@ -1222,29 +1240,42 @@ export default function PaniApp() {
   useEffect(() => { reload(); }, [reload]);
 
   const pid = p?.id;
+  // pedidos que chegaram e ainda ninguém viu (alerta na tela). "vistos" começa com o que já existia ao abrir.
+  const [alertas, setAlertas] = useState([]);
+  const vistos = useRef(null);
   const loadPedidos = useCallback(async () => {
     if (!pid) return;
     const { data } = await supabase.from('pedidos').select('*').eq('pani_id', pid)
       .in('status', ABERTOS).order('created_at');
-    setPedidos(data || []);
+    if (!data) return;
+    let chegaram = [];
+    if (vistos.current === null) vistos.current = new Set(data.map((o) => o.id));
+    else {
+      chegaram = data.filter((o) => o.status === 'novo' && !vistos.current.has(o.id)).reverse();
+      data.forEach((o) => vistos.current.add(o.id));
+    }
+    // some do alerta o pedido que já foi aceito ou cancelado (até em outro aparelho)
+    setAlertas((a) => [...chegaram, ...a.filter((x) => !chegaram.some((c) => c.id === x.id))]
+      .filter((x) => data.some((o) => o.id === x.id && o.status === 'novo')));
+    setPedidos(data);
   }, [pid]);
 
+  // tempo real (o pedido aparece na hora)
   useEffect(() => {
     if (!pid) return;
     loadPedidos();
     const ch = supabase.channel(`pedidos-${pid}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'pedidos', filter: `pani_id=eq.${pid}` }, (ev) => {
-        if (ev.eventType === 'INSERT') {
-          say(ev.new.tipo === 'delivery'
-            ? `🛵 Novo delivery — ${money(ev.new.total)}${ev.new.cliente ? ` · ${ev.new.cliente}` : ''}`
-            : `🔔 Novo pedido — mesa ${ev.new.mesa}`);
-          haptic('forte');
-          if (som) beep();
-        }
-        loadPedidos();
-      }).subscribe();
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'pedidos', filter: `pani_id=eq.${pid}` }, () => loadPedidos())
+      .subscribe();
     return () => { supabase.removeChannel(ch); };
-  }, [pid, say, loadPedidos, som]);
+  }, [pid, loadPedidos]);
+
+  // rede de segurança: se o tempo real cair sem avisar (wi-fi oscilou, tablet dormiu), confere a cada 30 s
+  useEffect(() => {
+    if (!pid) return;
+    const t = setInterval(loadPedidos, 30000);
+    return () => clearInterval(t);
+  }, [pid, loadPedidos]);
 
   useRevalidar(loadPedidos, 15000);
 
@@ -1287,6 +1318,9 @@ export default function PaniApp() {
       nav={T.map(([k, l, I]) => (
         <NavBtn key={k} icon={I} label={l} on={tab === k} click={() => setTab(k)} badge={k === 'pedidos' ? novos : 0} />
       ))}>
+      <AlertaPedidos alertas={alertas} som={som} manterTela={Boolean(p.delivery)}
+        ver={() => { setAlertas([]); setTab('pedidos'); }} dispensar={() => setAlertas([])} />
+      {p.delivery && (tab === 'painel' || tab === 'pedidos') && <AtivarAlertas som={som} />}
       {tab === 'painel' && <Painel p={p} reload={reload} />}
       {tab === 'pedidos' && <Pedidos lista={pedidos} recarregar={loadPedidos} menu={menu} pid={pid} som={som} setSom={setSom} delivery={Boolean(p.delivery)} />}
       {tab === 'cardapio' && <CardapioAdm p={p} />}

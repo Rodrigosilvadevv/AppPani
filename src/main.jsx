@@ -18,6 +18,7 @@ const PaniApp = lazy(() => import('./pages/Pani'));
 const Admin = lazy(() => import('./pages/Admin'));
 const Cardapio = lazy(() => import('./pages/Cardapio'));
 const Pedido = lazy(() => import('./pages/Pedido'));
+const DeliveryPublico = lazy(() => import('./pages/DeliveryPublico'));
 
 const Aviso = ({ children }) => (
   <div className="min-h-screen flex flex-col items-center justify-center gap-3 p-8 text-center"><Logo />{children}</div>
@@ -129,6 +130,7 @@ function Rotas() {
     <Suspense fallback={<Spinner />}>
       <Routes>
         <Route path="/c/:slug" element={<Cardapio />} />
+        <Route path="/d/:slug" element={<DeliveryPublico />} />
         <Route path="/pedido/:id" element={<Pedido />} />
         <Route path="/redefinir-senha" element={<Redefinir />} />
         <Route path="/privacidade" element={<Legal />} />
