@@ -17,7 +17,7 @@ import {
   linkWhatsapp, money, pn, precoFmt, qtdFmt, slugify, soDigitos, tempo,
 } from '../lib/util';
 import { ABERTOS, PAGAMENTOS, PROXIMO, STATUS, avisarStatus, codigo } from '../lib/pedidos';
-import { abrirLink, compartilhar, compartilharImagem, haptic, pegarLocalizacao } from '../lib/native';
+import { abrirLink, compartilhar, compartilharImagem, copiarTexto, haptic, pegarLocalizacao } from '../lib/native';
 import { Capa, IconeInstagram, IconeWhatsapp } from '../components/perfil';
 import { useRevalidar } from '../lib/hooks';
 import { validarTexto } from '../lib/moderacao';
@@ -693,6 +693,11 @@ function CardapioAdm({ p }) {
   useEffect(() => { load(); }, [load]);
 
   const copiar = async () => {
+    haptic();
+    if (await copiarTexto(link)) say('Link do cardápio copiado');
+    else say('Não copiou automático — toque no campo do link e copie manualmente.', 'erro');
+  };
+  const compartilharCardapio = async () => {
     const r = await compartilhar({ title: p.nome, text: `Cardápio da ${p.nome}`, url: link });
     if (r === 'copiado') say('Link do cardápio copiado');
   };
@@ -729,6 +734,7 @@ function CardapioAdm({ p }) {
         <div className="flex gap-2">
           <input readOnly className={inp} value={link} onFocus={(e) => e.target.select()} aria-label="Link do cardápio" />
           <button onClick={copiar} aria-label="Copiar link" className={btn2}><Copy size={16} /></button>
+          <button onClick={compartilharCardapio} aria-label="Compartilhar link" className={btn2}><Share2 size={16} /></button>
         </div>
         <button onClick={() => setQr(true)} className={`${btn2} flex items-center justify-center gap-2`}><QrCode size={16} />Gerar QR code da mesa</button>
         <p className="text-xs text-stone-500">Pães, salgados e doces avisados no Painel entram aqui sozinhos, em Balcão{delivery ? ', e ficam disponíveis no delivery' : ''}.</p>
@@ -997,6 +1003,11 @@ function Delivery({ p, patch }) {
   const link = `${APP_URL}/d/${p.slug}`; // pedido pelo navegador, sem conta e sem baixar o app
 
   const copiarLink = async () => {
+    haptic();
+    if (await copiarTexto(link)) say('Link do delivery copiado');
+    else say('Não copiou automático — toque no campo do link e copie manualmente.', 'erro');
+  };
+  const compartilharLink = async () => {
     const r = await compartilhar({ title: `${p.nome} · Delivery`, text: `Peça delivery da ${p.nome} 🛵`, url: link });
     if (r === 'copiado') say('Link do delivery copiado');
   };
@@ -1044,7 +1055,8 @@ function Delivery({ p, patch }) {
             <p className="text-[11px] text-stone-500 mt-0.5">Mande no WhatsApp, coloque na bio do Instagram ou imprima o QR. Qualquer pessoa pede pelo navegador, sem baixar o app e sem criar conta.</p>
             <div className="flex gap-2 mt-2 items-center">
               <span className="flex-1 min-w-0 truncate text-xs text-blue-800 bg-blue-50 rounded-lg px-2.5 py-2.5 select-all" data-selecionavel>{link}</span>
-              <button onClick={copiarLink} aria-label="Copiar ou compartilhar o link" className={btn2}><Copy size={16} /></button>
+              <button onClick={copiarLink} aria-label="Copiar link" className={btn2}><Copy size={16} /></button>
+              <button onClick={compartilharLink} aria-label="Compartilhar link" className={btn2}><Share2 size={16} /></button>
               <button onClick={() => setQr(true)} aria-label="QR code do delivery" className={btn2}><QrCode size={16} /></button>
             </div>
           </div>

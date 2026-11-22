@@ -19,6 +19,31 @@ export async function haptic(tipo = 'leve') {
   } catch { /* sem suporte */ }
 }
 
+/* ---------- copiar (sempre copia, nunca abre a folha de compartilhamento) ---------- */
+export async function copiarTexto(texto) {
+  try {
+    await navigator.clipboard.writeText(texto);
+    return true;
+  } catch { /* segue para o jeito antigo abaixo */ }
+  try {
+    // alguns navegadores/webviews (apps instalados, iframes) bloqueiam navigator.clipboard;
+    // esse jeito antigo com textarea + execCommand ainda funciona neles.
+    const area = document.createElement('textarea');
+    area.value = texto;
+    area.style.position = 'fixed';
+    area.style.top = '-9999px';
+    area.style.left = '-9999px';
+    document.body.appendChild(area);
+    area.focus();
+    area.select();
+    const ok = document.execCommand('copy');
+    area.remove();
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
 /* ---------- compartilhar ---------- */
 export async function compartilhar({ title, text, url }) {
   try {
