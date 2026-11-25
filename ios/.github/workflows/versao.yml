@@ -11,16 +11,20 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 60
     env:
-      WORKSPACE: ios/App/App.xcworkspace   # padrao do Capacitor com CocoaPods
-      SCHEME: App                       # padrao do Capacitor
-      BUNDLE_ID: com.seudominio.pani    # ajuste para o bundle id real
+      PROJECT: ios/App/App.xcodeproj
+      SCHEME: App
+      BUNDLE_ID: app.apppani.mobile
 
     steps:
       - uses: actions/checkout@v4
 
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Instalar dependencias JS
@@ -29,7 +33,7 @@ jobs:
       - name: Build do app web
         run: npm run build
 
-      - name: Sincronizar Capacitor e instalar bibliotecas iOS (pod install)
+      - name: Sincronizar Capacitor (baixa as bibliotecas iOS via Swift Package Manager)
         run: npx cap sync ios
 
       - name: Importar certificado de distribuicao
@@ -49,13 +53,12 @@ jobs:
 
       - name: Numero do build = numero da execucao
         run: |
-          cd ios/App
-          agvtool new-version -all ${{ github.run_number }}
+          sed -i '' "s/CURRENT_PROJECT_VERSION = [0-9]*;/CURRENT_PROJECT_VERSION = ${{ github.run_number }};/g" ios/App/App.xcodeproj/project.pbxproj
 
       - name: Archive
         run: |
           xcodebuild archive \
-            -workspace "$WORKSPACE" \
+            -project "$PROJECT" \
             -scheme "$SCHEME" \
             -configuration Release \
             -destination 'generic/platform=iOS' \
