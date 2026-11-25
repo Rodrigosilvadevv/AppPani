@@ -13,7 +13,9 @@ jobs:
     env:
       PROJECT: ios/App/App.xcodeproj
       SCHEME: App
-      BUNDLE_ID: app.apppani.mobile
+      TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+      ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
 
     steps:
       - uses: actions/checkout@v4
@@ -32,24 +34,17 @@ jobs:
 
       - name: Build do app web
         run: npm run build
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
-      - name: Sincronizar Capacitor (baixa as bibliotecas iOS via Swift Package Manager)
+      - name: Sincronizar Capacitor (bibliotecas iOS via Swift Package Manager)
         run: npx cap sync ios
 
-      - name: Importar certificado de distribuicao
-        uses: apple-actions/import-codesign-certs@v3
-        with:
-          p12-file-base64: ${{ secrets.IOS_CERT_P12_BASE64 }}
-          p12-password: ${{ secrets.IOS_CERT_PASSWORD }}
-
-      - name: Baixar perfil de provisionamento
-        uses: apple-actions/download-provisioning-profiles@v3
-        with:
-          bundle-id: ${{ env.BUNDLE_ID }}
-          profile-type: IOS_APP_STORE
-          issuer-id: ${{ secrets.APPSTORE_ISSUER_ID }}
-          api-key-id: ${{ secrets.APPSTORE_KEY_ID }}
-          api-private-key: ${{ secrets.APPSTORE_PRIVATE_KEY }}
+      - name: Gravar chave da API da App Store Connect
+        run: |
+          mkdir -p ~/private_keys
+          echo "${{ secrets.APP_STORE_CONNECT_API_PRIVATE_KEY }}" > ~/private_keys/AuthKey_${KEY_ID}.p8
 
       - name: Numero do build = numero da execucao
         run: |
@@ -63,29 +58,30 @@ jobs:
             -configuration Release \
             -destination 'generic/platform=iOS' \
             -archivePath $RUNNER_TEMP/pani.xcarchive \
-            CODE_SIGN_STYLE=Manual
+            -allowProvisioningUpdates \
+            -authenticationKeyPath ~/private_keys/AuthKey_${KEY_ID}.p8 \
+            -authenticationKeyID "$KEY_ID" \
+            -authenticationKeyIssuerID "$ISSUER_ID" \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            CODE_SIGN_STYLE=Automatic
 
-      - name: Exportar IPA
+      - name: Exportar e enviar para o TestFlight
         run: |
           cat > $RUNNER_TEMP/ExportOptions.plist <<EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0"><dict>
             <key>method</key><string>app-store-connect</string>
-            <key>signingStyle</key><string>manual</string>
-            <key>provisioningProfiles</key>
-            <dict><key>${BUNDLE_ID}</key><string>${{ secrets.IOS_PROFILE_NAME }}</string></dict>
+            <key>destination</key><string>upload</string>
+            <key>signingStyle</key><string>automatic</string>
+            <key>teamID</key><string>${TEAM_ID}</string>
           </dict></plist>
           EOF
           xcodebuild -exportArchive \
             -archivePath $RUNNER_TEMP/pani.xcarchive \
             -exportOptionsPlist $RUNNER_TEMP/ExportOptions.plist \
-            -exportPath $RUNNER_TEMP/export
-
-      - name: Enviar para o TestFlight
-        uses: apple-actions/upload-testflight-build@v1
-        with:
-          app-path: ${{ runner.temp }}/export/pani.ipa
-          issuer-id: ${{ secrets.APPSTORE_ISSUER_ID }}
-          api-key-id: ${{ secrets.APPSTORE_KEY_ID }}
-          api-private-key: ${{ secrets.APPSTORE_PRIVATE_KEY }}
+            -exportPath $RUNNER_TEMP/export \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath ~/private_keys/AuthKey_${KEY_ID}.p8 \
+            -authenticationKeyID "$KEY_ID" \
+            -authenticationKeyIssuerID "$ISSUER_ID"
